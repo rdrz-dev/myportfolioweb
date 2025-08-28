@@ -13,11 +13,13 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
         
         // Variables globales para Firebase
         window.firebaseApp = null;
         window.firebaseAuth = null;
         window.firestoreDb = null;
+        window.firebaseStorage = null;
         window.currentUserId = null;
         window.isAuthReady = false;
 
@@ -31,6 +33,7 @@
             window.firebaseApp = initializeApp(firebaseConfig);
             window.firestoreDb = getFirestore(window.firebaseApp);
             window.firebaseAuth = getAuth(window.firebaseApp);
+            window.firebaseStorage = getStorage(window.firebaseApp);
 
             onAuthStateChanged(window.firebaseAuth, async (user) => {
                 if (user) {
@@ -69,10 +72,6 @@
                     const data = profileDoc.data();
                     if (data.photoUrl) {
                         document.getElementById('profile-image').src = data.photoUrl;
-                        const adminPhotoInput = document.getElementById('admin-photo-url');
-                        if(adminPhotoInput) {
-                          adminPhotoInput.value = data.photoUrl;
-                        }
                     }
                 }
             } catch (e) {
@@ -82,21 +81,42 @@
         
         // Función para guardar la foto de perfil en la base de datos
         window.saveProfilePicture = async () => {
-            const photoUrl = document.getElementById('admin-photo-url').value;
-            if (!photoUrl) {
-                // En lugar de alert(), usamos un modal de mensaje
-                showMessageModal('Por favor, ingresa una URL de imagen válida.');
+            const fileInput = document.getElementById('admin-photo-file');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showMessageModal('Por favor, selecciona un archivo de imagen.');
                 return;
             }
 
+            if (!window.firebaseStorage || !window.currentUserId) {
+                showMessageModal('Error: El servicio de almacenamiento no está disponible.');
+                return;
+            }
+
+            // Mostrar un mensaje de carga
+            showMessageModal('Subiendo imagen...');
+
+            const storageRef = ref(window.firebaseStorage, `profile-pictures/${appId}/${window.currentUserId}/${file.name}`);
+
             try {
+                // Subir el archivo
+                const snapshot = await uploadBytes(storageRef, file);
+
+                // Obtener la URL de descarga
+                const photoUrl = await getDownloadURL(snapshot.ref);
+
+                // Guardar la URL en Firestore
                 const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/profile/data`);
                 await setDoc(profileDocRef, { photoUrl }, { merge: true });
-                showMessageModal('Foto de perfil actualizada con éxito.');
+
+                // Actualizar la imagen en la página y mostrar mensaje de éxito
                 loadProfilePicture();
+                showMessageModal('Foto de perfil actualizada con éxito.');
+
             } catch (e) {
-                console.error("Error al guardar la foto de perfil:", e);
-                showMessageModal('Error al guardar la foto de perfil.');
+                console.error("Error al subir o guardar la foto de perfil:", e);
+                showMessageModal('Error al subir o guardar la foto de perfil.');
             }
         };
 
@@ -328,6 +348,39 @@
         function closeConfirmModal() {
             document.getElementById('confirm-modal').classList.add('hidden');
         }
+
+        function showLoginModal() {
+            document.getElementById('login-modal').classList.remove('hidden');
+        }
+
+        function closeLoginModal() {
+            document.getElementById('login-modal').classList.add('hidden');
+        }
+
+        window.loginAdmin = (event) => {
+            event.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            // Credenciales hardcodeadas
+            if (username === 'admin' && password === 'portfolio123') {
+                isAdminLoggedIn = true;
+                closeLoginModal();
+
+                // Ocultar todas las secciones públicas y mostrar el panel de administración
+                sections.forEach(section => {
+                    section.classList.remove('active');
+                });
+                adminPanelSection.classList.add('active');
+                if (window.renderAdminPosts) {
+                    window.renderAdminPosts();
+                }
+                navLinks.forEach(link => link.classList.remove('active'));
+
+            } else {
+                showMessageModal('Usuario o contraseña incorrectos.');
+            }
+        };
         
     </script>
     <style>
@@ -795,10 +848,10 @@
                         <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
                             <h3 class="text-2xl font-bold mb-4">Actualizar Foto de Perfil</h3>
                             <div class="flex flex-col items-center space-y-4">
-                                <label for="admin-photo-url" class="text-sm font-medium text-gray-300">URL de la nueva foto</label>
-                                <input type="url" id="admin-photo-url" name="photo-url" placeholder="Ej: https://via.placeholder.com/200" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                <label for="admin-photo-file" class="text-sm font-medium text-gray-300">Selecciona una nueva foto</label>
+                                <input type="file" id="admin-photo-file" name="photo-file" accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent-gold file:text-white hover:file:bg-yellow-500">
                                 <button onclick="saveProfilePicture()" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
-                                    Guardar Foto
+                                    Subir y Guardar Foto
                                 </button>
                             </div>
                         </div>
@@ -845,6 +898,28 @@
         </div> <!-- Cierre del contenedor principal -->
 
     </div> <!-- Cierre del contenedor de todo el cuerpo -->
+
+    <!-- Modal para Login de Admin -->
+    <div id="login-modal" class="modal-container hidden">
+        <div class="modal-content text-left">
+            <h3 class="text-2xl font-bold mb-4 text-center">Acceso de Administrador</h3>
+            <form id="login-form" onsubmit="loginAdmin(event)" class="space-y-4">
+                <div>
+                    <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Usuario</label>
+                    <input type="text" id="username" name="username" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Contraseña</label>
+                    <input type="password" id="password" name="password" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                </div>
+                <div class="flex justify-end space-x-4 mt-4">
+                    <button type="submit" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
+                        Iniciar Sesión
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Modal para mensajes (reemplaza a alert) -->
     <div id="message-modal" class="modal-container hidden">
@@ -1052,6 +1127,7 @@
         let phraseIndex = 0;
         let charIndex = 0;
         let isDeleting = false;
+        let isAdminLoggedIn = false;
 
         const typingTextElement = document.getElementById('typing-text');
         const langEsButton = document.getElementById('lang-es');
@@ -1128,17 +1204,20 @@
         function handleHashChange() {
             const hash = window.location.hash;
             if (hash === '#admin') {
-                // Ocultar todas las secciones públicas y mostrar el panel de administración
-                sections.forEach(section => {
-                    section.classList.remove('active');
-                });
-                adminPanelSection.classList.add('active');
-                // Renderiza las publicaciones en el panel de admin
-                if (window.renderAdminPosts) {
-                    window.renderAdminPosts();
+                if (isAdminLoggedIn) {
+                    // Si ya ha iniciado sesión, muestra el panel directamente
+                    sections.forEach(section => {
+                        section.classList.remove('active');
+                    });
+                    adminPanelSection.classList.add('active');
+                    if (window.renderAdminPosts) {
+                        window.renderAdminPosts();
+                    }
+                    navLinks.forEach(link => link.classList.remove('active'));
+                } else {
+                    // Si no ha iniciado sesión, muestra el modal de login
+                    showLoginModal();
                 }
-                // Asegúrate de que los enlaces de navegación normal no estén activos
-                navLinks.forEach(link => link.classList.remove('active'));
             } else {
                 // Ocultar el panel de administración y mostrar la sección normal
                 adminPanelSection.classList.remove('active');
@@ -1196,11 +1275,6 @@
         window.onload = () => {
             updateContent('es');
             type();
-            // Desplazar automáticamente al pie de página al cargar la página
-            const footer = document.getElementById('main-footer');
-            if (footer) {
-                footer.scrollIntoView({ behavior: 'smooth' });
-            }
             // Llama a la función de manejo de hash al cargar la página
             handleHashChange();
         };

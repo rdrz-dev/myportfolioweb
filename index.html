@@ -81,6 +81,7 @@
         
         // Función para guardar la foto de perfil en la base de datos
         window.saveProfilePicture = async () => {
+            if (!isFirebaseReady()) return;
             if (!checkAdminCredentials()) return;
             const fileInput = document.getElementById('admin-photo-file');
             const file = fileInput.files[0];
@@ -175,6 +176,7 @@
         // Manejar el envío del formulario para agregar una nueva publicación
         window.addBlogPost = async (event) => {
             event.preventDefault();
+            if (!isFirebaseReady()) return;
             if (!checkAdminCredentials()) return;
             const form = event.target;
             const title = form.title.value;
@@ -241,6 +243,7 @@
 
         // Función para eliminar una publicación
         window.deleteBlogPost = async (postId) => {
+            if (!isFirebaseReady()) return;
             if (!checkAdminCredentials()) return;
             const confirmed = await showConfirmModal("¿Estás seguro de que deseas eliminar esta publicación?");
             if (confirmed) {
@@ -290,6 +293,7 @@
         // Maneja el envío del formulario de edición y actualiza la publicación
         window.updateBlogPost = async (event) => {
             event.preventDefault();
+            if (!isFirebaseReady()) return;
             if (!checkAdminCredentials()) return;
             const form = event.target;
             const postId = form.querySelector('#edit-post-id').value;
@@ -366,6 +370,15 @@
                 return true;
             } else {
                 showMessageModal('Usuario o contraseña de administrador incorrectos. No se pueden guardar los cambios.');
+                return false;
+            }
+        }
+
+        function isFirebaseReady() {
+            if (window.isAuthReady && window.currentUserId) {
+                return true;
+            } else {
+                showMessageModal('La página todavía se está inicializando. Por favor, espera un momento y vuelve a intentarlo.');
                 return false;
             }
         }

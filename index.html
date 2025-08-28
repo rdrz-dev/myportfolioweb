@@ -265,7 +265,7 @@
                     document.getElementById('edit-excerpt').value = data.excerpt;
                     document.getElementById('edit-content').value = data.content;
                     
-                    document.getElementById('edit-modal').classList.remove('hidden');
+                    document.getElementById('edit-modal').style.display = 'flex';
                 } else {
                     showMessageModal("La publicación no existe.");
                 }
@@ -277,7 +277,7 @@
 
         // Cierra el modal de edición
         window.closeEditModal = () => {
-            document.getElementById('edit-modal').classList.add('hidden');
+            document.getElementById('edit-modal').style.display = 'none';
         };
 
         // Maneja el envío del formulario de edición y actualiza la publicación
@@ -320,18 +320,19 @@
             const modal = document.getElementById('message-modal');
             const messageText = document.getElementById('modal-message-text');
             messageText.textContent = message;
-            modal.classList.remove('hidden');
+            if (modal) modal.style.display = 'flex';
         }
 
         function closeMessageModal() {
-            document.getElementById('message-modal').classList.add('hidden');
+            const modal = document.getElementById('message-modal');
+            if (modal) modal.style.display = 'none';
         }
 
         function showConfirmModal(message) {
             const modal = document.getElementById('confirm-modal');
             const messageText = document.getElementById('confirm-message-text');
             messageText.textContent = message;
-            modal.classList.remove('hidden');
+            if (modal) modal.style.display = 'flex';
 
             return new Promise((resolve) => {
                 document.getElementById('confirm-yes').onclick = () => {
@@ -346,15 +347,18 @@
         }
         
         function closeConfirmModal() {
-            document.getElementById('confirm-modal').classList.add('hidden');
+            const modal = document.getElementById('confirm-modal');
+            if (modal) modal.style.display = 'none';
         }
 
         function showLoginModal() {
-            document.getElementById('login-modal').classList.remove('hidden');
+            const modal = document.getElementById('login-modal');
+            if (modal) modal.style.display = 'flex';
         }
 
         function closeLoginModal() {
-            document.getElementById('login-modal').classList.add('hidden');
+            const modal = document.getElementById('login-modal');
+            if (modal) modal.style.display = 'none';
         }
 
         window.loginAdmin = (event) => {
@@ -1204,17 +1208,20 @@
         function handleHashChange() {
             const hash = window.location.hash;
             if (hash === '#admin') {
-                if (!isAdminLoggedIn) {
-                    // If not logged in and trying to access #admin, redirect to home
-                    window.location.hash = '#presentacion';
-                    return;
+                if (isAdminLoggedIn) {
+                    // Si ya ha iniciado sesión, muestra el panel directamente
+                    sections.forEach(section => {
+                        section.classList.remove('active');
+                    });
+                    adminPanelSection.classList.add('active');
+                    if (window.renderAdminPosts) {
+                        window.renderAdminPosts();
+                    }
+                    navLinks.forEach(link => link.classList.remove('active'));
+                } else {
+                    // Si no ha iniciado sesión, muestra el modal de login
+                    showLoginModal();
                 }
-                // If logged in, the panel is already shown by the login function.
-                // This logic ensures that if they are logged in, they stay on the admin page.
-                sections.forEach(section => section.classList.remove('active'));
-                adminPanelSection.classList.add('active');
-                navLinks.forEach(link => link.classList.remove('active'));
-
             } else {
                 // Ocultar el panel de administración y mostrar la sección normal
                 adminPanelSection.classList.remove('active');
@@ -1274,28 +1281,6 @@
             type();
             // Llama a la función de manejo de hash al cargar la página
             handleHashChange();
-
-            const footer = document.getElementById('main-footer');
-            let clickCount = 0;
-            let clickTimer = null;
-
-            footer.addEventListener('click', () => {
-                clickCount++;
-                if (clickTimer) {
-                    clearTimeout(clickTimer);
-                }
-                clickTimer = setTimeout(() => {
-                    clickCount = 0; // Reset after 2 seconds
-                }, 2000);
-
-                if (clickCount === 5) {
-                    clickCount = 0;
-                    clearTimeout(clickTimer);
-                    if (!isAdminLoggedIn) {
-                        showLoginModal();
-                    }
-                }
-            });
         };
 
         // Escucha los cambios en el hash de la URL

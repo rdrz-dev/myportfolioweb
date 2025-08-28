@@ -81,6 +81,7 @@
         
         // Función para guardar la foto de perfil en la base de datos
         window.saveProfilePicture = async () => {
+            if (!checkAdminCredentials()) return;
             const fileInput = document.getElementById('admin-photo-file');
             const file = fileInput.files[0];
 
@@ -170,6 +171,7 @@
         // Manejar el envío del formulario para agregar una nueva publicación
         window.addBlogPost = async (event) => {
             event.preventDefault();
+            if (!checkAdminCredentials()) return;
             const form = event.target;
             const title = form.title.value;
             const date = form.date.value;
@@ -235,7 +237,8 @@
 
         // Función para eliminar una publicación
         window.deleteBlogPost = async (postId) => {
-            const confirmed = showConfirmModal("¿Estás seguro de que deseas eliminar esta publicación?");
+            if (!checkAdminCredentials()) return;
+            const confirmed = await showConfirmModal("¿Estás seguro de que deseas eliminar esta publicación?");
             if (confirmed) {
                 try {
                     const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
@@ -283,6 +286,7 @@
         // Maneja el envío del formulario de edición y actualiza la publicación
         window.updateBlogPost = async (event) => {
             event.preventDefault();
+            if (!checkAdminCredentials()) return;
             const form = event.target;
             const postId = form.querySelector('#edit-post-id').value;
             const title = form.querySelector('#edit-title').value;
@@ -351,40 +355,16 @@
             if (modal) modal.style.display = 'none';
         }
 
-        function showLoginModal() {
-            const modal = document.getElementById('login-modal');
-            if (modal) modal.style.display = 'flex';
-        }
-
-        function closeLoginModal() {
-            const modal = document.getElementById('login-modal');
-            if (modal) modal.style.display = 'none';
-        }
-
-        window.loginAdmin = (event) => {
-            event.preventDefault();
-            const username = document.getElementById('username').value;
-            const password = document.getElementById('password').value;
-
-            // Credenciales hardcodeadas
-            if (username === 'admin' && password === 'portfolio123') {
-                isAdminLoggedIn = true;
-                closeLoginModal();
-
-                // Ocultar todas las secciones públicas y mostrar el panel de administración
-                sections.forEach(section => {
-                    section.classList.remove('active');
-                });
-                adminPanelSection.classList.add('active');
-                if (window.renderAdminPosts) {
-                    window.renderAdminPosts();
-                }
-                navLinks.forEach(link => link.classList.remove('active'));
-
+        function checkAdminCredentials() {
+            const user = document.getElementById('admin-username').value;
+            const pass = document.getElementById('admin-password').value;
+            if (user === 'admin' && pass === 'portfolio123') {
+                return true;
             } else {
-                showMessageModal('Usuario o contraseña incorrectos.');
+                showMessageModal('Usuario o contraseña de administrador incorrectos. No se pueden guardar los cambios.');
+                return false;
             }
-        };
+        }
         
     </script>
     <style>
@@ -895,6 +875,22 @@
                                 <li>Cargando publicaciones...</li>
                             </ul>
                         </div>
+
+                        <!-- Sección de Autenticación para Guardar -->
+                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner mt-8 border-t-2 border-yellow-500">
+                            <h3 class="text-2xl font-bold mb-4">Autenticación Requerida para Guardar</h3>
+                            <p class="text-gray-400 mb-4 text-sm">Por seguridad, ingresa tus credenciales antes de realizar cualquier cambio.</p>
+                            <div class="space-y-4">
+                                <div>
+                                    <label for="admin-username" class="sr-only">Usuario</label>
+                                    <input type="text" id="admin-username" name="admin-username" placeholder="Usuario (admin)" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                </div>
+                                <div>
+                                    <label for="admin-password" class="sr-only">Contraseña</label>
+                                    <input type="password" id="admin-password" name="admin-password" placeholder="Contraseña" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -902,28 +898,6 @@
         </div> <!-- Cierre del contenedor principal -->
 
     </div> <!-- Cierre del contenedor de todo el cuerpo -->
-
-    <!-- Modal para Login de Admin -->
-    <div id="login-modal" class="modal-container hidden">
-        <div class="modal-content text-left">
-            <h3 class="text-2xl font-bold mb-4 text-center">Acceso de Administrador</h3>
-            <form id="login-form" onsubmit="loginAdmin(event)" class="space-y-4">
-                <div>
-                    <label for="username" class="block text-sm font-medium text-gray-300 mb-1">Usuario</label>
-                    <input type="text" id="username" name="username" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                </div>
-                <div>
-                    <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Contraseña</label>
-                    <input type="password" id="password" name="password" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                </div>
-                <div class="flex justify-end space-x-4 mt-4">
-                    <button type="submit" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
-                        Iniciar Sesión
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
 
     <!-- Modal para mensajes (reemplaza a alert) -->
     <div id="message-modal" class="modal-container hidden">
@@ -1131,7 +1105,6 @@
         let phraseIndex = 0;
         let charIndex = 0;
         let isDeleting = false;
-        let isAdminLoggedIn = false;
 
         const typingTextElement = document.getElementById('typing-text');
         const langEsButton = document.getElementById('lang-es');
@@ -1207,23 +1180,23 @@
         // Función para manejar el cambio de hash en la URL
         function handleHashChange() {
             const hash = window.location.hash;
-            if (hash === '#admin') {
-                if (isAdminLoggedIn) {
-                    // Si ya ha iniciado sesión, muestra el panel directamente
-                    sections.forEach(section => {
-                        section.classList.remove('active');
-                    });
-                    adminPanelSection.classList.add('active');
-                    if (window.renderAdminPosts) {
-                        window.renderAdminPosts();
-                    }
-                    navLinks.forEach(link => link.classList.remove('active'));
-                } else {
-                    // Si no ha iniciado sesión, muestra el modal de login
-                    showLoginModal();
+            if (hash === '#panelcontrol') {
+                // Ocultar todas las secciones públicas y mostrar el panel de administración
+                sections.forEach(section => {
+                    section.classList.remove('active');
+                });
+                adminPanelSection.style.display = 'flex'; // Mostrar directamente
+                adminPanelSection.classList.add('active');
+
+                // Renderiza las publicaciones en el panel de admin si es necesario
+                if (window.renderAdminPosts) {
+                    window.renderAdminPosts();
                 }
+                // Asegúrate de que los enlaces de navegación normal no estén activos
+                navLinks.forEach(link => link.classList.remove('active'));
             } else {
                 // Ocultar el panel de administración y mostrar la sección normal
+                adminPanelSection.style.display = 'none';
                 adminPanelSection.classList.remove('active');
                 const targetId = hash || '#presentacion';
                 navigateToPage(targetId);

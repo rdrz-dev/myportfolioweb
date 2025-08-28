@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi Portafolio - Rodrigo Juarez</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Importar las librerías de Firebase -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, setDoc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Variables globales para Firebase
+        window.firebaseApp = null;
+        window.firebaseAuth = null;
+        window.firestoreDb = null;
+        window.currentUserId = null;
+        window.isAuthReady = false;
+
+        // Configuración y variables del entorno Canvas
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        // Inicializar Firebase
+        if (firebaseConfig) {
+            window.firebaseApp = initializeApp(firebaseConfig);
+            window.firestoreDb = getFirestore(window.firebaseApp);
+            window.firebaseAuth = getAuth(window.firebaseApp);
+
+            onAuthStateChanged(window.firebaseAuth, async (user) => {
+                if (user) {
+                    console.log("Usuario autenticado:", user.uid);
+                    window.currentUserId = user.uid;
+                    window.isAuthReady = true;
+
+                    // Carga la foto de perfil al iniciar
+                    loadProfilePicture();
+
+                    // Inicia el listener para el blog
+                    initBlogListener();
+                    
+                } else {
+                    console.log("Usuario no autenticado, iniciando sesión anónimamente...");
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(window.firebaseAuth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(window.firebaseAuth);
+                        }
+                    } catch (error) {
+                        console.error("Error de autenticación de Firebase:", error);
+                    }
+                }
+            });
+        }
+        
+        // Función para cargar la foto de perfil desde la base de datos
+        async function loadProfilePicture() {
+            if (!window.firestoreDb || !window.currentUserId) return;
+            try {
+                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/profile/data`);
+                const profileDoc = await getDoc(profileDocRef);
+                if (profileDoc.exists()) {
+                    const data = profileDoc.data();
+                    if (data.photoUrl) {
+                        document.getElementById('profile-image').src = data.photoUrl;
+                        const adminPhotoInput = document.getElementById('admin-photo-url');
+                        if(adminPhotoInput) {
+                          adminPhotoInput.value = data.photoUrl;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Error al cargar la foto de perfil:", e);
+            }
+        }
+        
+        // Función para guardar la foto de perfil en la base de datos
+        window.saveProfilePicture = async () => {
+            const photoUrl = document.getElementById('admin-photo-url').value;
+            if (!photoUrl) {
+                // En lugar de alert(), usamos un modal de mensaje
+                showMessageModal('Por favor, ingresa una URL de imagen válida.');
+                return;
+            }
+
+            try {
+                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/profile/data`);
+                await setDoc(profileDocRef, { photoUrl }, { merge: true });
+                showMessageModal('Foto de perfil actualizada con éxito.');
+                loadProfilePicture();
+            } catch (e) {
+                console.error("Error al guardar la foto de perfil:", e);
+                showMessageModal('Error al guardar la foto de perfil.');
+            }
+        };
+
+        // Función para inicializar el listener de la base de datos para el blog
+        function initBlogListener() {
+            if (!window.firestoreDb || !window.currentUserId) return;
+
+            const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts`);
+            
+            // onSnapshot es una escucha en tiempo real
+            onSnapshot(blogCollectionRef, (querySnapshot) => {
+                const blogPosts = [];
+                querySnapshot.forEach((doc) => {
+                    const post = doc.data();
+                    post.id = doc.id;
+                    blogPosts.push(post);
+                });
+                renderBlogPosts(blogPosts);
+            }, (error) => {
+                console.error("Error al obtener las publicaciones del blog:", error);
+                document.getElementById('blog-posts-container').innerHTML = '<p class="text-red-500">Error al cargar las publicaciones del blog.</p>';
+            });
+        }
+        
+        // Función para renderizar las publicaciones del blog en la página
+        function renderBlogPosts(posts) {
+            const container = document.getElementById('blog-posts-container');
+            container.innerHTML = '';
+            
+            if (posts.length === 0) {
+                container.innerHTML = `<p class="text-gray-400">No hay publicaciones de blog aún.</p>`;
+            } else {
+                // Ordena las publicaciones por fecha de manera descendente
+                const sortedPosts = posts.sort((a, b) => new Date(b.date) - new Date(a.date));
+                sortedPosts.forEach(post => {
+                    const postElement = document.createElement('div');
+                    postElement.className = 'bg-card p-8 rounded-3xl shadow-lg card-hover-effect text-white mb-6';
+                    postElement.innerHTML = `
+                        <h3 class="text-2xl font-bold mb-2">${post.title}</h3>
+                        <p class="text-gray-200 text-sm mb-4">${post.date}</p>
+                        <p class="text-gray-200 leading-relaxed mb-6">${post.excerpt}</p>
+                        <a href="#" class="inline-block bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
+                            Leer más
+                        </a>
+                    `;
+                    container.appendChild(postElement);
+                });
+            }
+        }
+        
+        // Manejar el envío del formulario para agregar una nueva publicación
+        window.addBlogPost = async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const title = form.title.value;
+            const date = form.date.value;
+            const excerpt = form.excerpt.value;
+            const content = form.content.value; // Contenido completo para futuros usos
+            
+            if (!title || !date || !excerpt) {
+                showMessageModal('Por favor, completa todos los campos.');
+                return;
+            }
+
+            try {
+                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts`);
+                await addDoc(blogCollectionRef, {
+                    title,
+                    date,
+                    excerpt,
+                    content,
+                    createdAt: new Date().toISOString()
+                });
+                form.reset();
+                showMessageModal('Publicación agregada con éxito.');
+            } catch (e) {
+                console.error("Error al agregar documento: ", e);
+                showMessageModal('Error al agregar la publicación.');
+            }
+        };
+
+        // Función para renderizar la lista de publicaciones en el panel de administración
+        window.renderAdminPosts = async () => {
+            const adminPostList = document.getElementById('admin-post-list');
+            adminPostList.innerHTML = '<li>Cargando...</li>';
+
+            try {
+                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts`);
+                const querySnapshot = await getDocs(blogCollectionRef);
+                
+                adminPostList.innerHTML = ''; // Limpia la lista
+
+                if (querySnapshot.empty) {
+                    adminPostList.innerHTML = '<li>No hay publicaciones en la base de datos.</li>';
+                    return;
+                }
+
+                querySnapshot.forEach((doc) => {
+                    const post = doc.data();
+                    const postItem = document.createElement('li');
+                    postItem.className = 'flex justify-between items-center p-2 border-b border-gray-700 last:border-b-0';
+                    postItem.innerHTML = `
+                        <span class="text-gray-300 truncate">${post.title}</span>
+                        <div class="flex space-x-2">
+                            <button onclick="editBlogPost('${doc.id}')" class="text-blue-400 hover:text-blue-600 transition-colors">Editar</button>
+                            <button onclick="deleteBlogPost('${doc.id}')" class="text-red-500 hover:text-red-700 transition-colors">Eliminar</button>
+                        </div>
+                    `;
+                    adminPostList.appendChild(postItem);
+                });
+            } catch (e) {
+                console.error("Error al obtener las publicaciones del administrador:", e);
+                adminPostList.innerHTML = '<li>Error al cargar las publicaciones.</li>';
+            }
+        };
+
+        // Función para eliminar una publicación
+        window.deleteBlogPost = async (postId) => {
+            const confirmed = showConfirmModal("¿Estás seguro de que deseas eliminar esta publicación?");
+            if (confirmed) {
+                try {
+                    const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
+                    await deleteDoc(postDocRef);
+                    showMessageModal('Publicación eliminada con éxito.');
+                } catch (e) {
+                    console.error("Error al eliminar documento: ", e);
+                    showMessageModal('Error al eliminar la publicación.');
+                }
+            }
+        };
+
+        // NUEVAS FUNCIONES PARA LA EDICIÓN DEL BLOG
+        // ------------------------------------------
+
+        // Abre el modal de edición y carga los datos de la publicación
+        window.editBlogPost = async (postId) => {
+            try {
+                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
+                const postDoc = await getDoc(postDocRef);
+                
+                if (postDoc.exists()) {
+                    const data = postDoc.data();
+                    document.getElementById('edit-post-id').value = postDoc.id;
+                    document.getElementById('edit-title').value = data.title;
+                    document.getElementById('edit-date').value = data.date;
+                    document.getElementById('edit-excerpt').value = data.excerpt;
+                    document.getElementById('edit-content').value = data.content;
+                    
+                    document.getElementById('edit-modal').classList.remove('hidden');
+                } else {
+                    showMessageModal("La publicación no existe.");
+                }
+            } catch (e) {
+                console.error("Error al cargar la publicación para editar: ", e);
+                showMessageModal("Error al cargar la publicación para editar.");
+            }
+        };
+
+        // Cierra el modal de edición
+        window.closeEditModal = () => {
+            document.getElementById('edit-modal').classList.add('hidden');
+        };
+
+        // Maneja el envío del formulario de edición y actualiza la publicación
+        window.updateBlogPost = async (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const postId = form.querySelector('#edit-post-id').value;
+            const title = form.querySelector('#edit-title').value;
+            const date = form.querySelector('#edit-date').value;
+            const excerpt = form.querySelector('#edit-excerpt').value;
+            const content = form.querySelector('#edit-content').value;
+
+            if (!postId || !title || !date || !excerpt) {
+                showMessageModal('Por favor, completa todos los campos.');
+                return;
+            }
+
+            try {
+                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
+                await setDoc(postDocRef, {
+                    title,
+                    date,
+                    excerpt,
+                    content,
+                    updatedAt: new Date().toISOString()
+                }, { merge: true }); // Usar { merge: true } para no sobrescribir otros campos
+                
+                showMessageModal('Publicación actualizada con éxito.');
+                closeEditModal(); // Cierra el modal después de guardar
+            } catch (e) {
+                console.error("Error al actualizar la publicación: ", e);
+                showMessageModal('Error al actualizar la publicación.');
+            }
+        };
+        
+        // NUEVAS FUNCIONES PARA MODALES PERSONALIZADOS (SIN ALERT)
+        // -----------------------------------------------------
+
+        function showMessageModal(message) {
+            const modal = document.getElementById('message-modal');
+            const messageText = document.getElementById('modal-message-text');
+            messageText.textContent = message;
+            modal.classList.remove('hidden');
+        }
+
+        function closeMessageModal() {
+            document.getElementById('message-modal').classList.add('hidden');
+        }
+
+        function showConfirmModal(message) {
+            const modal = document.getElementById('confirm-modal');
+            const messageText = document.getElementById('confirm-message-text');
+            messageText.textContent = message;
+            modal.classList.remove('hidden');
+
+            return new Promise((resolve) => {
+                document.getElementById('confirm-yes').onclick = () => {
+                    closeConfirmModal();
+                    resolve(true);
+                };
+                document.getElementById('confirm-no').onclick = () => {
+                    closeConfirmModal();
+                    resolve(false);
+                };
+            });
+        }
+        
+        function closeConfirmModal() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+        }
+        
+    </script>
+    <style>
+        /* Definición de la nueva paleta de colores y estilos */
+        :root {
+            --color-primary-accent: #6C40B8; /* Violeta principal más oscuro */
+            --color-secondary-accent: #FFD700; /* Dorado para resaltar */
+            --color-bg-light: #F0E6FF; /* Fondo principal violeta claro */
+            --color-bg-card: #FFFFFF; /* Fondo de tarjetas blanco */
+            --color-text-dark: #333333; /* Texto oscuro */
+            --color-text-dimmed: #6b7280; /* Texto atenuado */
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            color: #FFFFFF; /* Color de texto principal en blanco */
+            background: none;
+        }
+
+        /* Estilo para el fondo animado de degradado */
+        .animated-gradient-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            /* Aplicar un degradado de varios colores para el movimiento */
+            background: linear-gradient(-45deg, #1A0D2A, #2C173E, #452163, #602D8C);
+            background-size: 400% 400%;
+            animation: gradient-animation 15s ease infinite;
+        }
+
+        /* Animación del degradado */
+        @keyframes gradient-animation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Clases de utilidad con los nuevos colores */
+        .text-accent-violet {
+            color: var(--color-primary-accent);
+        }
+        .text-accent-gold {
+            color: var(--color-secondary-accent);
+        }
+        .bg-card {
+            background-color: rgba(255, 255, 255, 0.2); /* Hacer las tarjetas más transparentes */
+            backdrop-filter: blur(15px); /* Aumentar el desenfoque para un mejor efecto */
+        }
+        .bg-admin-card {
+            background-color: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        /* Estilos de las secciones (páginas) */
+        .page-section {
+            width: 100%;
+            min-height: 100vh;
+            padding-top: 6rem;
+            padding-bottom: 6rem;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .page-section.active {
+            display: flex;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        /* Estilos específicos para el panel de administración */
+        .admin-section {
+            display: none;
+        }
+        
+        .admin-section.active {
+            display: flex;
+        }
+
+        .typing-cursor {
+            display: inline-block;
+            border-right: .15em solid #FFFFFF; /* Cursor blanco para el texto blanco */
+            animation: blink-cursor 1s step-end infinite;
+        }
+        @keyframes blink-cursor {
+            from, to { border-color: transparent; }
+            50% { border-color: #FFFFFF; }
+        }
+
+        /* Estilos para la barra de navegación */
+        .nav-link.active {
+            border-bottom: 3px solid #FFD700; /* Borde dorado para el enlace activo */
+            padding-bottom: 5px;
+            font-weight: 700;
+        }
+        
+        /* Estilos de las tarjetas con efecto de volteo */
+        .flip-card {
+            background-color: transparent;
+            width: 100%;
+            height: 450px; /* Altura fija para que el volteo sea suave */
+            perspective: 1000px; /* Para el efecto 3D */
+            max-width: 400px;
+            cursor: pointer; /* Añadir el cursor de puntero a la tarjeta */
+        }
+
+        .flip-card-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+
+        .flip-card.is-flipped .flip-card-inner {
+            transform: rotateY(180deg);
+        }
+
+        .flip-card-front, .flip-card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 1.5rem; /* rounded-3xl de Tailwind */
+            box-shadow: 0 15px 30px -5px rgba(255, 255, 255, 0.15);
+            padding: 2rem; /* p-8 de Tailwind */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(15px);
+        }
+
+        .flip-card-back {
+            transform: rotateY(180deg);
+        }
+        
+        .card-hover-effect:hover {
+            transform: translateY(-8px);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        /* Para asegurar que el footer esté al final sin espacio extra */
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* Estilo para el modal */
+        .modal-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal-content {
+            background-color: #2c173e;
+            color: #fff;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            max-width: 90%;
+            width: 500px;
+            text-align: center;
+        }
+
+    </style>
+</head>
+<body>
+    <!-- Elemento del fondo animado y con movimiento -->
+    <div class="animated-gradient-bg"></div>
+    
+    <div id="main-content" class="w-full">
+        <!-- Navbar fija con fondo semi-transparente -->
+        <header class="fixed top-0 left-0 right-0 z-50 p-4 bg-white/10 backdrop-blur-sm shadow-xl rounded-b-3xl">
+            <div class="max-w-lg mx-auto flex justify-between items-center text-sm font-semibold text-gray-200">
+                <!-- Menú de navegación: deslizable -->
+                <nav class="flex-grow overflow-x-auto whitespace-nowrap scroll-smooth py-2 -my-2">
+                    <a href="#presentacion" class="nav-link px-4 py-2 hover:text-white transition-colors active" data-lang-nav="nav_home">Inicio</a>
+                    <a href="#projects" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_projects">Proyectos</a>
+                    <a href="#skills" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_skills">Habilidades</a>
+                    <a href="#plans" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_plans">Planes</a>
+                    <a href="#blog" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_blog">Blog</a>
+                </nav>
+                <div class="flex-shrink-0 flex items-center gap-2 ml-4">
+                    <button id="lang-es" class="font-bold text-sm text-white">ES</button>
+                    <span class="text-gray-500">|</span>
+                    <button id="lang-en" class="font-bold text-sm text-gray-200">EN</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Contenedor principal de páginas -->
+        <div id="page-container" class="w-full">
+
+            <!-- Sección de presentación (Inicio) -->
+            <section id="presentacion" class="page-section active bg-transparent">
+                <div class="flex flex-col items-center max-w-4xl mx-auto text-center px-6">
+                    <!-- Círculo para la foto de perfil -->
+                    <div class="w-48 h-48 md:w-56 md:h-56 rounded-full overflow-hidden mb-6 shadow-xl border-4 border-accent-gold transition-transform transform hover:scale-105">
+                        <img id="profile-image" src="https://placehold.co/200x200/FFD700/6C40B8?text=Foto" alt="Foto de Perfil de Rodrigo" class="w-full h-full object-cover">
+                    </div>
+                    <h1 class="text-5xl md:text-6xl font-extrabold mb-4 text-white">
+                        <span id="typing-text"></span><span class="typing-cursor"></span>
+                    </h1>
+                    <p class="text-lg md:text-xl text-gray-200 mb-8" data-lang-key="hero_subtitle">
+                        Soy un <strong class="font-bold">Desarrollador Web</strong> apasionado por crear experiencias digitales hermosas y funcionales.
+                    </p>
+                    <a href="#projects" class="nav-link bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105" data-lang-key="hero_cta_projects">
+                        Ver Proyectos
+                    </a>
+                    
+                    <!-- Cuadro de "Sobre Mí" -->
+                    <div class="bg-card rounded-3xl p-8 shadow-xl mt-12 max-w-3xl text-center">
+                        <h2 class="text-3xl font-bold mb-4 text-white" data-lang-key="section_about_title">Sobre Mí</h2>
+                        <p class="text-lg text-gray-200 leading-relaxed mb-8" data-lang-key="section_about_text">
+                            Soy un desarrollador con experiencia en la creación de aplicaciones web dinámicas e intuitivas. Me encanta resolver problemas complejos y construir soluciones que mejoran la experiencia del usuario. Mi objetivo es continuar aprendiendo y creciendo en el mundo de la tecnología.
+                        </p>
+                        <h3 class="text-2xl font-bold mb-4 text-white" data-lang-key="section_contact_title">Contacto</h3>
+                        <div class="flex flex-col sm:flex-row justify-center items-center gap-6 sm:gap-12 text-gray-200">
+                            <a href="mailto:tu.correo@ejemplo.com" class="flex items-center gap-2 text-lg md:text-xl font-medium hover:text-white transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                tu.correo@ejemplo.com
+                            </a>
+                            <a href="https://github.com/tu_github" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-lg md:text-xl font-medium hover:text-white transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.5-1 4.5-2.5 4.5-5A3.5 3.5 0 0 0 15 5.25a3.5 3.5 0 0 0-1 2.25c-1 0-2 .5-2.5 1.5l-2.5 1.5-2.5-1.5c-1-.5-2-1-2.5-1.5A3.5 3.5 0 0 0 4 5.25a3.5 3.5 0 0 0-1 2.25c0 2.5 1 4 4.5 5a4.8 4.8 0 0 0-1 3.5v4"/><path d="M9 19c-3 0-5.5-1.5-5.5-1.5s2.5-1.5 5.5-1.5 5.5 1.5 5.5 1.5v2c0 2-4 3-5.5 1.5"/><path d="M21 16v-4a4.8 4.8 0 0 0-1-3.5c3.5-1 4.5-2.5 4.5-5A3.5 3.5 0 0 0 21 5.25a3.5 3.5 0 0 0-1 2.25c-1 0-2 .5-2.5 1.5l-2.5 1.5-2.5-1.5c-1-.5-2-1-2.5-1.5A3.5 3.5 0 0 0 18 5.25a3.5 3.5 0 0 0-1 2.25c0 2.5 1 4 4.5 5a4.8 4.8 0 0 0-1 3.5v4"/></svg>
+                                GitHub
+                            </a>
+                            <a href="https://linkedin.com/in/tu_linkedin" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 text-lg md:text-xl font-medium hover:text-white transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2a2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+                                LinkedIn
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sección Proyectos -->
+            <section id="projects" class="page-section bg-transparent">
+                <div class="max-w-5xl mx-auto px-6">
+                    <h2 class="text-4xl font-extrabold text-center mb-12 text-white" data-lang-key="section_projects_title">Mis Proyectos</h2>
+                    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                        <!-- Tarjeta de Proyecto 1 -->
+                        <div class="bg-card p-8 rounded-3xl shadow-lg card-hover-effect text-white">
+                            <h3 class="text-2xl font-bold mb-2" data-lang-key="project_title_1">Tienda en Línea</h3>
+                            <p class="text-gray-200 mb-4" data-lang-key="project_desc_1">
+                                Una plataforma de comercio electrónico moderna con un sistema de carrito de compras, gestión de productos y pasarela de pago segura.
+                            </p>
+                            <a href="#" class="inline-block text-accent-gold font-semibold hover:underline" data-lang-key="project_cta">Ver Proyecto &rarr;</a>
+                        </div>
+                        <!-- Tarjeta de Proyecto 2 -->
+                        <div class="bg-card p-8 rounded-3xl shadow-lg card-hover-effect text-white">
+                            <h3 class="text-2xl font-bold mb-2" data-lang-key="project_title_2">Red Social</h3>
+                            <p class="text-gray-200 mb-4" data-lang-key="project_desc_2">
+                                Una red social minimalista que permite a los usuarios compartir fotos, seguir a otros y dar "me gusta" a las publicaciones.
+                            </p>
+                            <a href="#" class="inline-block text-accent-gold font-semibold hover:underline" data-lang-key="project_cta">Ver Proyecto &rarr;</a>
+                        </div>
+                        <!-- Tarjeta de Proyecto 3 -->
+                        <div class="bg-card p-8 rounded-3xl shadow-lg card-hover-effect text-white">
+                            <h3 class="text-2xl font-bold mb-2" data-lang-key="project_title_3">Aplicación de Clima</h3>
+                            <p class="text-gray-200 mb-4" data-lang-key="project_desc_3">
+                                Una aplicación que muestra el pronóstico del tiempo en tiempo real utilizando una API. Cuenta con una interfaz limpia y animaciones fluidas.
+                            </p>
+                            <a href="#" class="inline-block text-accent-gold font-semibold hover:underline" data-lang-key="project_cta">Ver Proyecto &rarr;</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sección Habilidades -->
+            <section id="skills" class="page-section bg-transparent">
+                <div class="max-w-4xl mx-auto text-center px-6">
+                    <h2 class="text-4xl font-extrabold mb-12 text-white" data-lang-key="section_skills_title">Mis Habilidades</h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-8">
+                        <!-- Icono de Habilidad -->
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/F7540F/FFF?text=HTML" alt="HTML Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">HTML</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/1A74F9/FFF?text=CSS" alt="CSS Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">CSS</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/E3D224/000?text=JS" alt="JavaScript Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">JavaScript</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/5ED3F3/000?text=RC" alt="React Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">React</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/38BDF8/FFF?text=TW" alt="Tailwind CSS Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">Tailwind CSS</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/E84E31/FFF?text=Git" alt="Git Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">Git</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/447DA1/FFF?text=PY" alt="Python Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">Python</span>
+                        </div>
+                        <div class="flex flex-col items-center p-6 rounded-2xl bg-white/20 shadow-sm hover:shadow-lg transition-shadow">
+                            <img src="https://placehold.co/48x48/81C925/000?text=Node" alt="Node.js Icon" class="w-12 h-12 mb-2">
+                            <span class="text-sm font-semibold text-gray-200 mt-2">Node.js</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sección de Planes de Desarrollo -->
+            <section id="plans" class="page-section bg-transparent">
+                <div class="max-w-xl mx-auto text-center px-6">
+                    <h2 class="text-4xl font-extrabold mb-12 text-white" data-lang-key="section_plans_title">Planes de Desarrollo</h2>
+                    <div class="flex flex-col items-center gap-8">
+                        <!-- Tarjeta de Plan Básico -->
+                        <div class="flip-card">
+                            <div class="flip-card-inner">
+                                <div class="flip-card-front flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-2 text-white" data-lang-key="plan_basic_title">Plan Básico</h3>
+                                    <p class="text-sm font-semibold text-gray-200 uppercase mb-4" data-lang-key="plan_basic_type">Frontend</p>
+                                    <div class="flex justify-center items-center gap-2 mb-6">
+                                        <img src="https://placehold.co/48x48/F7540F/FFF?text=HTML" alt="HTML Icon" class="w-8 h-8" title="HTML">
+                                        <img src="https://placehold.co/48x48/1A74F9/FFF?text=CSS" alt="CSS Icon" class="w-8 h-8" title="CSS">
+                                        <img src="https://placehold.co/48x48/E3D224/000?text=JS" alt="JS Icon" class="w-8 h-8" title="JavaScript">
+                                    </div>
+                                    <p class="text-2xl font-bold text-accent-gold mb-2" data-lang-key="plan_price_1">Desde 200 USD</p>
+                                    <p class="text-sm font-semibold text-gray-200" data-lang-key="plan_time_1">1-3 días</p>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-6">Haz clic para ver detalles</span>
+                                </div>
+                                <div class="flip-card-back flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-4 text-white" data-lang-key="plan_details_title">Detalles del Plan</h3>
+                                    <ul class="text-left text-gray-200 list-disc list-inside space-y-2 mb-6 text-sm">
+                                        <li data-lang-key="plan_details_1">Página de presentación simple</li>
+                                        <li data-lang-key="plan_details_2">Página de aterrizaje responsiva</li>
+                                        <li data-lang-key="plan_details_3">Componentes interactivos simples</li>
+                                        <li data-lang-key="plan_details_4">No incluye base de datos</li>
+                                    </ul>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para regresar</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Tarjeta de Plan Intermedio -->
+                        <div class="flip-card">
+                            <div class="flip-card-inner">
+                                <div class="flip-card-front flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-2 text-white" data-lang-key="plan_standard_title">Plan Intermedio</h3>
+                                    <p class="text-sm font-semibold text-gray-200 uppercase mb-4" data-lang-key="plan_standard_type">Frontend Avanzado</p>
+                                    <div class="flex justify-center items-center gap-2 mb-6">
+                                        <img src="https://placehold.co/48x48/5ED3F3/000?text=RC" alt="React Icon" class="w-8 h-8" title="React">
+                                        <img src="https://placehold.co/48x48/38BDF8/FFF?text=TW" alt="Tailwind Icon" class="w-8 h-8" title="Tailwind CSS">
+                                        <img src="https://placehold.co/48x48/E84E31/FFF?text=Git" alt="Git Icon" class="w-8 h-8" title="Git">
+                                    </div>
+                                    <p class="text-2xl font-bold text-accent-gold mb-2" data-lang-key="plan_price_2">Desde 450 USD</p>
+                                    <p class="text-sm font-semibold text-gray-200" data-lang-key="plan_time_2">7-14 días</p>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para ver detalles</span>
+                                </div>
+                                <div class="flip-card-back flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-4 text-white" data-lang-key="plan_details_title">Detalles del Plan</h3>
+                                    <ul class="text-left text-gray-200 list-disc list-inside space-y-2 mb-6 text-sm">
+                                        <li data-lang-key="plan_details_5">Aplicación de una sola página (SPA)</li>
+                                        <li data-lang-key="plan_details_6">Animaciones y transiciones</li>
+                                        <li data-lang-key="plan_details_7">Formularios interactivos</li>
+                                        <li data-lang-key="plan_details_8">Conexión a una base de datos</li>
+                                    </ul>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para regresar</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Tarjeta de Plan Avanzado -->
+                        <div class="flip-card">
+                            <div class="flip-card-inner">
+                                <div class="flip-card-front flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-2 text-white" data-lang-key="plan_pro_title">Plan Avanzado</h3>
+                                    <p class="text-sm font-semibold text-gray-200 uppercase mb-4" data-lang-key="plan_pro_type">Fullstack</p>
+                                    <div class="flex justify-center items-center gap-2 mb-6">
+                                        <img src="https://placehold.co/48x48/81C925/000?text=Node" alt="Node.js Icon" class="w-8 h-8" title="Node.js">
+                                        <img src="https://placehold.co/48x48/E59A1D/FFF?text=DB" alt="Database Icon" class="w-8 h-8" title="Base de Datos">
+                                        <img src="https://placehold.co/48x48/5ED3F3/000?text=RC" alt="React Icon" class="w-8 h-8" title="React">
+                                    </div>
+                                    <p class="text-2xl font-bold text-accent-gold mb-2" data-lang-key="plan_price_3">Desde 700 USD</p>
+                                    <p class="text-sm font-semibold text-gray-200" data-lang-key="plan_time_3">7-14 días</p>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para ver detalles</span>
+                                </div>
+                                <div class="flip-card-back flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-4 text-white" data-lang-key="plan_details_title">Detalles del Plan</h3>
+                                    <ul class="text-left text-gray-200 list-disc list-inside space-y-2 mb-6 text-sm">
+                                        <li data-lang-key="plan_details_9">Base de datos integrada (Firebase)</li>
+                                        <li data-lang-key="plan_details_10">Autenticación de usuarios</li>
+                                        <li data-lang-key="plan_details_11">Panel de control simple</li>
+                                        <li data-lang-key="plan_details_12">APIs RESTful</li>
+                                    </ul>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para regresar</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Tarjeta de Proyecto Premium -->
+                        <div class="flip-card">
+                            <div class="flip-card-inner">
+                                <div class="flip-card-front flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-2 text-white" data-lang-key="plan_expert_title">Proyecto Premium</h3>
+                                    <p class="text-sm font-semibold text-gray-200 uppercase mb-4" data-lang-key="plan_expert_type">Fullstack Avanzado</p>
+                                    <div class="flex justify-center items-center gap-2 mb-6">
+                                        <img src="https://placehold.co/48x48/000/FFF?text=NX" alt="Next.js Icon" class="w-8 h-8 rounded-full border border-gray-200" title="Next.js">
+                                        <img src="https://placehold.co/48x48/F7F7F7/000?text=GRAPH" alt="GraphQL Icon" class="w-8 h-8 rounded-full border border-gray-200" title="GraphQL">
+                                        <img src="https://placehold.co/48x48/FF9900/000?text=AWS" alt="AWS Icon" class="w-8 h-8 rounded-full border border-gray-200" title="AWS">
+                                    </div>
+                                    <p class="text-2xl font-bold text-accent-gold mb-2" data-lang-key="plan_price_4">Consultar Presupuesto</p>
+                                    <p class="text-sm font-semibold text-gray-200" data-lang-key="plan_time_4">3-6 meses+</p>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para ver detalles</span>
+                                </div>
+                                <div class="flip-card-back flex flex-col items-center justify-center">
+                                    <h3 class="text-2xl font-bold mb-4 text-white" data-lang-key="plan_details_title">Detalles del Plan</h3>
+                                    <ul class="text-left text-gray-200 list-disc list-inside space-y-2 mb-6 text-sm">
+                                        <li data-lang-key="plan_details_13">Solución de negocio personalizada</li>
+                                        <li data-lang-key="plan_details_14">Optimización SEO y de rendimiento</li>
+                                        <li data-lang-key="plan_details_15">Arquitectura escalable</li>
+                                        <li data-lang-key="plan_details_16">APIs avanzadas</li>
+                                    </ul>
+                                    <span class="flip-trigger-text text-sm font-semibold text-gray-400 hover:text-white transition-colors mt-auto">Haz clic para regresar</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Sección de Blog -->
+            <section id="blog" class="page-section bg-transparent">
+                <div class="max-w-4xl mx-auto text-center px-6">
+                    <h2 class="text-4xl font-extrabold mb-12 text-white" data-lang-key="section_blog_title">Mi Blog</h2>
+                    <div id="blog-posts-container" class="space-y-6">
+                        <!-- Las publicaciones se cargarán dinámicamente aquí -->
+                        <p class="text-gray-400">Cargando publicaciones...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Panel de Administración (oculto por defecto) -->
+            <section id="admin-panel" class="page-section admin-section bg-transparent">
+                <div class="max-w-4xl mx-auto text-center px-6">
+                    <h2 class="text-4xl font-extrabold mb-12 text-white">Panel de Administración</h2>
+                    <div class="bg-card p-8 rounded-3xl shadow-lg text-white space-y-8">
+                        
+                        <!-- Sección de Perfil -->
+                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
+                            <h3 class="text-2xl font-bold mb-4">Actualizar Foto de Perfil</h3>
+                            <div class="flex flex-col items-center space-y-4">
+                                <label for="admin-photo-url" class="text-sm font-medium text-gray-300">URL de la nueva foto</label>
+                                <input type="url" id="admin-photo-url" name="photo-url" placeholder="Ej: https://via.placeholder.com/200" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                <button onclick="saveProfilePicture()" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
+                                    Guardar Foto
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Sección de Blog -->
+                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
+                            <h3 class="text-2xl font-bold mb-4">Agregar Nueva Publicación</h3>
+                            <form onsubmit="addBlogPost(event)" class="space-y-4">
+                                <div>
+                                    <input type="text" id="title" name="title" placeholder="Título de la publicación" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                </div>
+                                <div>
+                                    <input type="date" id="date" name="date" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                </div>
+                                <div>
+                                    <textarea id="excerpt" name="excerpt" rows="2" placeholder="Resumen de la publicación" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
+                                </div>
+                                <div>
+                                    <textarea id="content" name="content" rows="6" placeholder="Contenido completo de la publicación" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
+                                </div>
+                                <button type="submit" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
+                                    Agregar Publicación
+                                </button>
+                            </form>
+                        </div>
+                        
+                        <!-- Sección de Gestión de Publicaciones -->
+                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-2xl font-bold">Gestionar Publicaciones</h3>
+                                <button onclick="renderAdminPosts()" class="bg-gray-500 text-white py-1 px-3 rounded-full text-sm hover:bg-gray-600 transition-colors">
+                                    Recargar
+                                </button>
+                            </div>
+                            <ul id="admin-post-list" class="text-left space-y-2">
+                                <!-- Las publicaciones del administrador se cargarán aquí -->
+                                <li>Cargando publicaciones...</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div> <!-- Cierre del contenedor principal -->
+
+    </div> <!-- Cierre del contenedor de todo el cuerpo -->
+
+    <!-- Modal para mensajes (reemplaza a alert) -->
+    <div id="message-modal" class="modal-container hidden">
+        <div class="modal-content">
+            <p id="modal-message-text" class="text-lg font-semibold mb-4"></p>
+            <button onclick="closeMessageModal()" class="bg-accent-gold text-white font-bold py-2 px-6 rounded-full hover:bg-yellow-500 transition-colors">Aceptar</button>
+        </div>
+    </div>
+
+    <!-- Modal de confirmación (reemplaza a confirm) -->
+    <div id="confirm-modal" class="modal-container hidden">
+        <div class="modal-content">
+            <p id="confirm-message-text" class="text-lg font-semibold mb-4"></p>
+            <div class="flex justify-center space-x-4">
+                <button id="confirm-yes" class="bg-red-600 text-white font-bold py-2 px-6 rounded-full hover:bg-red-700 transition-colors">Sí</button>
+                <button id="confirm-no" class="bg-gray-500 text-white font-bold py-2 px-6 rounded-full hover:bg-gray-600 transition-colors">No</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal para edición de publicaciones -->
+    <div id="edit-modal" class="modal-container hidden">
+        <div class="modal-content text-left">
+            <h3 class="text-2xl font-bold mb-4 text-center">Editar Publicación</h3>
+            <form id="edit-form" onsubmit="updateBlogPost(event)" class="space-y-4">
+                <input type="hidden" id="edit-post-id" name="post-id">
+                <div>
+                    <label for="edit-title" class="block text-sm font-medium text-gray-300 mb-1">Título</label>
+                    <input type="text" id="edit-title" name="title" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                </div>
+                <div>
+                    <label for="edit-date" class="block text-sm font-medium text-gray-300 mb-1">Fecha</label>
+                    <input type="date" id="edit-date" name="date" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                </div>
+                <div>
+                    <label for="edit-excerpt" class="block text-sm font-medium text-gray-300 mb-1">Resumen</label>
+                    <textarea id="edit-excerpt" name="excerpt" rows="2" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
+                </div>
+                <div>
+                    <label for="edit-content" class="block text-sm font-medium text-gray-300 mb-1">Contenido completo</label>
+                    <textarea id="edit-content" name="content" rows="6" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
+                </div>
+                <div class="flex justify-end space-x-4 mt-4">
+                    <button type="button" onclick="closeEditModal()" class="bg-gray-500 text-white font-bold py-2 px-6 rounded-full hover:bg-gray-600 transition-colors">Cancelar</button>
+                    <button type="submit" class="bg-accent-gold text-white font-bold py-2 px-6 rounded-full hover:bg-yellow-500 transition-colors">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Pie de página final -->
+    <footer id="main-footer" class="mt-auto text-center py-4 px-4 text-base text-gray-200">
+        <span class="text-sm text-gray-300">2025. Hecho con ❤️ por Alejo.</span>
+    </footer>
+
+
+    <!-- Script de JavaScript para el efecto de mecanografía, cambio de idioma y navegación -->
+    <script>
+        // Objeto de traducciones para todos los textos de la página
+        const translations = {
+            es: {
+                // Menú de navegación
+                nav_home: 'Inicio',
+                nav_projects: 'Proyectos',
+                nav_skills: 'Habilidades',
+                nav_plans: 'Planes',
+                nav_blog: 'Blog',
+                // Contenido de la página
+                hero_phrases: [
+                    'Hola, soy Rodrigo',
+                    'Desarrollador Full Stack',
+                    'Apasionado por el Front-end',
+                    'Siempre aprendiendo algo nuevo'
+                ],
+                hero_subtitle: 'Soy un <strong class="font-bold">Desarrollador Web</strong> apasionado por crear experiencias digitales hermosas y funcionales.',
+                hero_cta_projects: 'Ver Proyectos',
+                section_about_title: 'Sobre Mí',
+                section_about_text: 'Soy un desarrollador con experiencia en la creación de aplicaciones web dinámicas e intuitivas. Me encanta resolver problemas complejos y construir soluciones que mejoran la experiencia del usuario. Mi objetivo es continuar aprendiendo y creciendo en el mundo de la tecnología.',
+                section_contact_title: 'Contacto',
+                section_projects_title: 'Mis Proyectos',
+                project_title_1: 'Tienda en Línea',
+                project_desc_1: 'Una plataforma de comercio electrónico moderna con un sistema de carrito de compras, gestión de productos y pasarela de pago segura.',
+                project_title_2: 'Red Social',
+                project_desc_2: 'Una red social minimalista que permite a los usuarios compartir fotos, seguir a otros y dar "me gusta" a las publicaciones.',
+                project_title_3: 'Aplicación de Clima',
+                project_desc_3: 'Una aplicación que muestra el pronóstico del tiempo en tiempo real utilizando una API. Cuenta con una interfaz limpia y animaciones fluidas.',
+                project_cta: 'Ver Proyecto &rarr;',
+                section_skills_title: 'Mis Habilidades',
+                section_plans_title: 'Planes de Desarrollo',
+                plan_basic_title: 'Plan Básico',
+                plan_basic_type: 'Frontend',
+                plan_price_1: 'Desde 200 USD',
+                plan_time_1: '1-3 días',
+                plan_standard_title: 'Plan Intermedio',
+                plan_standard_type: 'Frontend Avanzado',
+                plan_price_2: 'Desde 450 USD',
+                plan_time_2: '7-14 días',
+                plan_pro_title: 'Plan Avanzado',
+                plan_pro_type: 'Fullstack',
+                plan_price_3: 'Desde 700 USD',
+                plan_time_3: '7-14 días',
+                plan_expert_title: 'Proyecto Premium',
+                plan_expert_type: 'Fullstack Avanzado',
+                plan_price_4: 'Consultar Presupuesto',
+                plan_time_4: '3-6 meses+',
+                plan_details_title: 'Detalles del Plan',
+                plan_details_1: 'Página de presentación simple',
+                plan_details_2: 'Página de aterrizaje responsiva',
+                plan_details_3: 'Componentes interactivos simples',
+                plan_details_4: 'No incluye base de datos',
+                plan_details_5: 'Aplicación de una sola página (SPA)',
+                plan_details_6: 'Animaciones y transiciones',
+                plan_details_7: 'Formularios interactivos',
+                plan_details_8: 'Conexión a una base de datos',
+                plan_details_9: 'Base de datos integrada (Firebase)',
+                plan_details_10: 'Autenticación de usuarios',
+                plan_details_11: 'Panel de control simple',
+                plan_details_12: 'APIs RESTful',
+                plan_details_13: 'Solución de negocio personalizada',
+                plan_details_14: 'Optimización SEO y de rendimiento',
+                plan_details_15: 'Arquitectura escalable',
+                plan_details_16: 'APIs avanzadas',
+                plan_cta_details: 'Detalles',
+                section_blog_title: 'Mi Blog',
+                blog_post_title_1: 'El futuro de la inteligencia artificial en el desarrollo web',
+                blog_post_date_1: 'Publicado el 15 de agosto, 2024',
+                blog_post_excerpt_1: 'La inteligencia artificial está transformando la forma en que construimos sitios web. Desde generadores de código hasta herramientas de diseño automatizadas, la IA nos permite crear experiencias más personalizadas y eficientes. En este post, exploramos algunas de las tecnologías más emocionantes en el horizonte.',
+                blog_cta: 'Leer más',
+                blog_view_all: 'Ver todas las entradas',
+            },
+            en: {
+                // Navegación
+                nav_home: 'Home',
+                nav_projects: 'Projects',
+                nav_skills: 'Skills',
+                nav_plans: 'Plans',
+                nav_blog: 'Blog',
+                // Contenido de la página
+                hero_phrases: [
+                    'Hello, I\'m Rodrigo',
+                    'Full Stack Developer',
+                    'Passionate about Front-end',
+                    'Always learning something new'
+                ],
+                hero_subtitle: 'I am a <strong class="font-bold">Web Developer</strong> passionate about creating beautiful and functional digital experiences.',
+                hero_cta_projects: 'View Projects',
+                section_about_title: 'About Me',
+                section_about_text: 'I am a developer with experience in creating dynamic and intuitive web applications. I love solving complex problems and building solutions that improve the user experience. My goal is to continue learning and growing in the world of technology.',
+                section_contact_title: 'Contact',
+                section_projects_title: 'My Projects',
+                project_title_1: 'Online Store',
+                project_desc_1: 'A modern e-commerce platform with a shopping cart system, product management, and a secure payment gateway.',
+                project_title_2: 'Social Network',
+                project_desc_2: 'A minimalist social network that allows users to share photos, follow others, and "like" posts.',
+                project_title_3: 'Weather App',
+                project_desc_3: 'An application that displays real-time weather forecasts using an API. It features a clean interface and fluid animations.',
+                project_cta: 'View Project &rarr;',
+                section_skills_title: 'My Skills',
+                section_plans_title: 'Development Plans',
+                plan_basic_title: 'Basic Plan',
+                plan_basic_type: 'Frontend',
+                plan_price_1: 'From 200 USD',
+                plan_time_1: '1-3 days',
+                plan_standard_title: 'Intermediate Plan',
+                plan_standard_type: 'Advanced Frontend',
+                plan_price_2: 'From 450 USD',
+                plan_time_2: '7-14 days',
+                plan_pro_title: 'Advanced Plan',
+                plan_pro_type: 'Fullstack',
+                plan_price_3: 'From 700 USD',
+                plan_time_3: '7-14 days',
+                plan_expert_title: 'Premium Project',
+                plan_expert_type: 'Advanced Fullstack',
+                plan_price_4: 'Request a Quote',
+                plan_time_4: '3-6 months+',
+                plan_details_title: 'Plan Details',
+                plan_details_1: 'Simple presentation page',
+                plan_details_2: 'Responsive landing page',
+                plan_details_3: 'Simple interactive components',
+                plan_details_4: 'Does not include a database',
+                plan_details_5: 'Single Page Application (SPA)',
+                plan_details_6: 'Animations and transitions',
+                plan_details_7: 'Interactive forms',
+                plan_details_8: 'Database connection',
+                plan_details_9: 'Integrated database (Firebase)',
+                plan_details_10: 'User authentication',
+                plan_details_11: 'Simple control panel',
+                plan_details_12: 'RESTful APIs',
+                plan_details_13: 'Custom business solution',
+                plan_details_14: 'SEO and performance optimization',
+                plan_details_15: 'Scalable architecture',
+                plan_details_16: 'APIs avanzadas',
+                plan_cta_details: 'Details',
+                section_blog_title: 'My Blog',
+                blog_post_title_1: 'The future of artificial intelligence in web development',
+                blog_post_date_1: 'Published on August 15, 2024',
+                blog_post_excerpt_1: 'Artificial intelligence is transforming the way we build websites. From code generators to automated design tools, AI allows us to create more personalized and efficient experiences. In this post, we explore some of the most exciting technologies on the horizon.',
+                blog_cta: 'Read more',
+                blog_view_all: 'View all posts',
+            },
+        };
+
+        let currentLang = 'es';
+        let phrases = translations[currentLang].hero_phrases;
+        let phraseIndex = 0;
+        let charIndex = 0;
+        let isDeleting = false;
+
+        const typingTextElement = document.getElementById('typing-text');
+        const langEsButton = document.getElementById('lang-es');
+        const langEnButton = document.getElementById('lang-en');
+        const sections = document.querySelectorAll('.page-section:not(.admin-section)');
+        const adminPanelSection = document.getElementById('admin-panel');
+        const navLinks = document.querySelectorAll('.nav-link');
+        const flipCards = document.querySelectorAll('.flip-card'); // Seleccionar todas las tarjetas
+
+        // Función para actualizar la interfaz de usuario con el idioma seleccionado
+        function updateContent(lang) {
+            currentLang = lang;
+            phrases = translations[currentLang].hero_phrases;
+
+            // Actualizar todos los elementos de texto estáticos
+            document.querySelectorAll('[data-lang-key]').forEach(element => {
+                const key = element.getAttribute('data-lang-key');
+                if (key) {
+                    element.innerHTML = translations[currentLang][key];
+                }
+            });
+
+            // Actualizar los enlaces del menú de navegación
+            document.querySelectorAll('[data-lang-nav]').forEach(element => {
+                const key = element.getAttribute('data-lang-nav');
+                if (key) {
+                    element.textContent = translations[currentLang][key];
+                }
+            });
+
+            // Actualizar los estilos de los botones de idioma
+            if (currentLang === 'es') {
+                langEsButton.classList.add('text-white');
+                langEsButton.classList.remove('text-gray-200');
+                langEnButton.classList.remove('text-white');
+                langEnButton.classList.add('text-gray-200');
+            } else {
+                langEnButton.classList.add('text-white');
+                langEnButton.classList.remove('text-gray-200');
+                langEsButton.classList.remove('text-gray-200');
+            }
+        }
+
+        // Función que maneja la animación de escritura
+        function type() {
+            const currentPhrase = phrases[phraseIndex];
+            const textContent = typingTextElement.textContent;
+
+            if (!isDeleting) {
+                // Escribir carácter por carácter
+                charIndex++;
+                typingTextElement.textContent = currentPhrase.substring(0, charIndex);
+            } else {
+                // Borrar carácter por carácter
+                charIndex--;
+                typingTextElement.textContent = currentPhrase.substring(0, charIndex);
+            }
+
+            let typingSpeed = isDeleting ? 50 : 150;
+
+            if (!isDeleting && charIndex === currentPhrase.length) {
+                typingSpeed = 2000; // Pausa al final de la frase
+                isDeleting = true;
+            } else if (isDeleting && charIndex === 0) {
+                isDeleting = false;
+                phraseIndex = (phraseIndex + 1) % phrases.length;
+                typingSpeed = 500; // Pausa entre frases
+            }
+
+            setTimeout(type, typingSpeed);
+        }
+
+        // Función para manejar el cambio de hash en la URL
+        function handleHashChange() {
+            const hash = window.location.hash;
+            if (hash === '#admin') {
+                // Ocultar todas las secciones públicas y mostrar el panel de administración
+                sections.forEach(section => {
+                    section.classList.remove('active');
+                });
+                adminPanelSection.classList.add('active');
+                // Renderiza las publicaciones en el panel de admin
+                if (window.renderAdminPosts) {
+                    window.renderAdminPosts();
+                }
+                // Asegúrate de que los enlaces de navegación normal no estén activos
+                navLinks.forEach(link => link.classList.remove('active'));
+            } else {
+                // Ocultar el panel de administración y mostrar la sección normal
+                adminPanelSection.classList.remove('active');
+                const targetId = hash || '#presentacion';
+                navigateToPage(targetId);
+            }
+        }
+
+        // Función para cambiar de página y actualizar el enlace activo
+        function navigateToPage(targetId) {
+            // Oculta todas las secciones
+            sections.forEach(section => {
+                section.classList.remove('active');
+            });
+
+            // Muestra la sección deseada
+            const targetSection = document.querySelector(targetId);
+            if (targetSection) {
+                targetSection.classList.add('active');
+                // Desplaza a la parte superior de la sección
+                targetSection.scrollIntoView({ behavior: 'smooth' });
+            }
+
+            // Actualiza el estado activo de los enlaces de la navbar
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href') === targetId) {
+                    link.classList.add('active');
+                }
+            });
+        }
+
+        // Manejar la navegación por enlaces
+        navLinks.forEach(link => {
+            link.addEventListener('click', (e) => {
+                // Evita que el navegador maneje el desplazamiento por defecto
+                e.preventDefault();
+                const targetId = link.getAttribute('href');
+                window.location.hash = targetId;
+            });
+        });
+
+        // Detectar clics en los botones de idioma
+        langEsButton.addEventListener('click', () => updateContent('es'));
+        langEnButton.addEventListener('click', () => updateContent('en'));
+
+        // Añadir el listener para el efecto de volteo de las tarjetas
+        flipCards.forEach(card => {
+            card.addEventListener('click', () => {
+                card.classList.toggle('is-flipped');
+            });
+        });
+
+        // Inicializar al cargar la página
+        window.onload = () => {
+            updateContent('es');
+            type();
+            // Desplazar automáticamente al pie de página al cargar la página
+            const footer = document.getElementById('main-footer');
+            if (footer) {
+                footer.scrollIntoView({ behavior: 'smooth' });
+            }
+            // Llama a la función de manejo de hash al cargar la página
+            handleHashChange();
+        };
+
+        // Escucha los cambios en el hash de la URL
+        window.addEventListener('hashchange', handleHashChange);
+    </script>
+</body>
+</html>

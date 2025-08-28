@@ -90,8 +90,12 @@
                 return;
             }
 
-            if (!window.firebaseStorage || !window.currentUserId) {
-                showMessageModal('Error: El servicio de almacenamiento no está disponible.');
+            if (!window.currentUserId) {
+                showMessageModal('Error de autenticación: No se pudo verificar el usuario. Por favor, recarga la página e intenta de nuevo.');
+                return;
+            }
+            if (!window.firebaseStorage) {
+                showMessageModal('Error de configuración: El servicio de almacenamiento no está inicializado. Revisa la configuración de Firebase.');
                 return;
             }
 

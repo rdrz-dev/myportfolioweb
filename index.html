@@ -30,26 +30,6 @@
             window.firebaseApp = initializeApp(firebaseConfig);
             window.firestoreDb = getFirestore(window.firebaseApp);
             window.firebaseStorage = getStorage(window.firebaseApp);
-
-            // Carga la foto de perfil al iniciar
-            loadProfilePicture();
-        }
-        
-        // Función para cargar la foto de perfil desde la base de datos
-        async function loadProfilePicture() {
-            if (!window.firestoreDb) return;
-            try {
-                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/profile/data`);
-                const profileDoc = await getDoc(profileDocRef);
-                if (profileDoc.exists()) {
-                    const data = profileDoc.data();
-                    if (data.photoUrl) {
-                        document.getElementById('profile-image').src = data.photoUrl;
-                    }
-                }
-            } catch (e) {
-                console.error("Error al cargar la foto de perfil:", e);
-            }
         }
         
         
@@ -256,7 +236,7 @@
                 <div class="flex flex-col items-center max-w-4xl mx-auto text-center px-6">
                     <!-- Círculo para la foto de perfil -->
                     <div class="w-48 h-48 md:w-56 md:h-56 rounded-full overflow-hidden mb-6 shadow-xl border-4 border-accent-gold transition-transform transform hover:scale-105" style="border-color: var(--color-secondary-accent)">
-                        <img id="profile-image" src="https://placehold.co/200x200/DDA0DD/6C40B8?text=Foto" alt="Foto de Perfil de Rodrigo" class="w-full h-full object-cover">
+                        <img id="profile-image" src="fotouser.jpg" alt="Foto de Perfil de Rodrigo" class="w-full h-full object-cover">
                     </div>
                     <h1 class="text-5xl md:text-6xl font-extrabold mb-4 text-white">
                         <span id="typing-text"></span><span class="typing-cursor"></span>

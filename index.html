@@ -17,11 +17,8 @@
         
         // Variables globales para Firebase
         window.firebaseApp = null;
-        window.firebaseAuth = null;
         window.firestoreDb = null;
         window.firebaseStorage = null;
-        window.currentUserId = null;
-        window.isAuthReady = false;
 
         // Configuración y variables del entorno Canvas
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
@@ -32,41 +29,19 @@
         if (firebaseConfig) {
             window.firebaseApp = initializeApp(firebaseConfig);
             window.firestoreDb = getFirestore(window.firebaseApp);
-            window.firebaseAuth = getAuth(window.firebaseApp);
             window.firebaseStorage = getStorage(window.firebaseApp);
 
-            onAuthStateChanged(window.firebaseAuth, async (user) => {
-                if (user) {
-                    console.log("Usuario autenticado:", user.uid);
-                    window.currentUserId = user.uid;
-                    window.isAuthReady = true;
-
-                    // Carga la foto de perfil al iniciar
-                    loadProfilePicture();
-
-                    // Inicia el listener para el blog
-                    initBlogListener();
-                    
-                } else {
-                    console.log("Usuario no autenticado, iniciando sesión anónimamente...");
-                    try {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(window.firebaseAuth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(window.firebaseAuth);
-                        }
-                    } catch (error) {
-                        console.error("Error de autenticación de Firebase:", error);
-                    }
-                }
-            });
+            // Carga la foto de perfil al iniciar
+            loadProfilePicture();
+            // Inicia el listener para el blog
+            initBlogListener();
         }
         
         // Función para cargar la foto de perfil desde la base de datos
         async function loadProfilePicture() {
-            if (!window.firestoreDb || !window.currentUserId) return;
+            if (!window.firestoreDb) return;
             try {
-                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/profile/data`);
+                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/profile/data`);
                 const profileDoc = await getDoc(profileDocRef);
                 if (profileDoc.exists()) {
                     const data = profileDoc.data();
@@ -81,8 +56,8 @@
         
         // Función para guardar la foto de perfil en la base de datos
         window.saveProfilePicture = async () => {
-            if (!isFirebaseReady()) return;
             if (!checkAdminCredentials()) return;
+
             const fileInput = document.getElementById('admin-photo-file');
             const file = fileInput.files[0];
 
@@ -90,20 +65,16 @@
                 showMessageModal('Por favor, selecciona un archivo de imagen.');
                 return;
             }
-
-            if (!window.currentUserId) {
-                showMessageModal('Error de autenticación: No se pudo verificar el usuario. Por favor, recarga la página e intenta de nuevo.');
-                return;
-            }
             if (!window.firebaseStorage) {
-                showMessageModal('Error de configuración: El servicio de almacenamiento no está inicializado. Revisa la configuración de Firebase.');
+                showMessageModal('Error: El servicio de almacenamiento no está disponible.');
                 return;
             }
 
             // Mostrar un mensaje de carga
             showMessageModal('Subiendo imagen...');
 
-            const storageRef = ref(window.firebaseStorage, `profile-pictures/${appId}/${window.currentUserId}/${file.name}`);
+            // Usar una ruta estática para la foto de perfil
+            const storageRef = ref(window.firebaseStorage, `profile-pictures/${appId}/profile-picture.jpg`);
 
             try {
                 // Subir el archivo
@@ -112,8 +83,8 @@
                 // Obtener la URL de descarga
                 const photoUrl = await getDownloadURL(snapshot.ref);
 
-                // Guardar la URL en Firestore
-                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/profile/data`);
+                // Guardar la URL en Firestore en una ruta estática
+                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/profile/data`);
                 await setDoc(profileDocRef, { photoUrl }, { merge: true });
 
                 // Actualizar la imagen en la página y mostrar mensaje de éxito
@@ -126,11 +97,13 @@
             }
         };
 
+        // TODO: Las siguientes funciones del blog están rotas porque dependen de 'currentUserId', que fue eliminado.
+        // Para arreglarlas, se necesita una estrategia similar a la de la foto de perfil (usar una ruta estática).
+
         // Función para inicializar el listener de la base de datos para el blog
         function initBlogListener() {
-            if (!window.firestoreDb || !window.currentUserId) return;
-
-            const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts`);
+            if (!window.firestoreDb) return;
+            const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/blog_posts`);
             
             // onSnapshot es una escucha en tiempo real
             onSnapshot(blogCollectionRef, (querySnapshot) => {

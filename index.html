@@ -33,8 +33,6 @@
 
             // Carga la foto de perfil al iniciar
             loadProfilePicture();
-            // Inicia el listener para el blog
-            initBlogListener();
         }
         
         // Función para cargar la foto de perfil desde la base de datos
@@ -54,326 +52,14 @@
             }
         }
         
-        window.saveProfilePicture = async () => {
-            if (!checkAdminCredentials()) return;
-
-            const urlInput = document.getElementById('admin-photo-url');
-            const fileInput = document.getElementById('admin-photo-file');
-            const imageUrl = urlInput.value.trim();
-            const file = fileInput.files[0];
-
-            if (!imageUrl && !file) {
-                showMessageModal('Por favor, selecciona un archivo o ingresa una URL.');
-                return;
-            }
-
-            let finalPhotoUrl = imageUrl;
-
-            // Si se seleccionó un archivo, se le da prioridad a subirlo
-            if (file) {
-                if (!window.firebaseStorage) {
-                    showMessageModal('Error: El servicio de almacenamiento no está disponible.');
-                    return;
-                }
-                showMessageModal('Subiendo imagen...');
-
-                // Usar una ruta estática para la foto de perfil
-                const storageRef = ref(window.firebaseStorage, `profile-pictures/${appId}/profile-picture.jpg`);
-
-                try {
-                    const snapshot = await uploadBytes(storageRef, file);
-                    finalPhotoUrl = await getDownloadURL(snapshot.ref);
-                } catch (e) {
-                    console.error("Error al subir la foto de perfil:", e);
-                    showMessageModal('Error al subir la foto de perfil.');
-                    return;
-                }
-            }
-
-            // Si no hay una URL final (ni de archivo subido ni de input), mostrar error
-            if (!finalPhotoUrl) {
-                 showMessageModal('La URL proporcionada no es válida.');
-                 return;
-            }
-
-            // Guardar la URL en Firestore
-            try {
-                showMessageModal('Guardando foto de perfil...');
-                const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/profile/data`);
-                await setDoc(profileDocRef, { photoUrl: finalPhotoUrl }, { merge: true });
-
-                loadProfilePicture(); // Recargar la imagen en la página
-                showMessageModal('Foto de perfil actualizada con éxito.');
-            } catch (e) {
-                console.error("Error al guardar la foto de perfil:", e);
-                showMessageModal('Error al guardar la foto de perfil.');
-            }
-        };
-
-        // TODO: Las siguientes funciones del blog están rotas porque dependen de 'currentUserId', que fue eliminado.
-        // Para arreglarlas, se necesita una estrategia similar a la de la foto de perfil (usar una ruta estática).
-
-        // Función para inicializar el listener de la base de datos para el blog
-        function initBlogListener() {
-            if (!window.firestoreDb) return;
-            const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/blog_posts`);
-            
-            // onSnapshot es una escucha en tiempo real
-            onSnapshot(blogCollectionRef, (querySnapshot) => {
-                const blogPosts = [];
-                querySnapshot.forEach((doc) => {
-                    const post = doc.data();
-                    post.id = doc.id;
-                    blogPosts.push(post);
-                });
-                renderBlogPosts(blogPosts);
-            }, (error) => {
-                console.error("Error al obtener las publicaciones del blog:", error);
-                document.getElementById('blog-posts-container').innerHTML = '<p class="text-red-500">Error al cargar las publicaciones del blog.</p>';
-            });
-        }
         
-        // Función para renderizar las publicaciones del blog en la página
-        function renderBlogPosts(posts) {
-            const container = document.getElementById('blog-posts-container');
-            container.innerHTML = '';
-            
-            if (posts.length === 0) {
-                container.innerHTML = `<p class="text-gray-400">No hay publicaciones de blog aún.</p>`;
-            } else {
-                // Ordena las publicaciones por fecha de manera descendente
-                const sortedPosts = posts.sort((a, b) => new Date(b.date) - new Date(a.date));
-                sortedPosts.forEach(post => {
-                    const postElement = document.createElement('div');
-                    postElement.className = 'bg-card p-8 rounded-3xl shadow-lg card-hover-effect text-white mb-6';
-                    postElement.innerHTML = `
-                        <h3 class="text-2xl font-bold mb-2">${post.title}</h3>
-                        <p class="text-gray-200 text-sm mb-4">${post.date}</p>
-                        <p class="text-gray-200 leading-relaxed mb-6">${post.excerpt}</p>
-                        <a href="#" class="inline-block bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
-                            Leer más
-                        </a>
-                    `;
-                    container.appendChild(postElement);
-                });
-            }
-        }
-        
-        // Manejar el envío del formulario para agregar una nueva publicación
-        window.addBlogPost = async (event) => {
-            event.preventDefault();
-            if (!isFirebaseReady()) return;
-            if (!checkAdminCredentials()) return;
-            const form = event.target;
-            const title = form.title.value;
-            const date = form.date.value;
-            const excerpt = form.excerpt.value;
-            const content = form.content.value; // Contenido completo para futuros usos
-            
-            if (!title || !date || !excerpt) {
-                showMessageModal('Por favor, completa todos los campos.');
-                return;
-            }
-
-            try {
-                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/blog_posts`);
-                await addDoc(blogCollectionRef, {
-                    title,
-                    date,
-                    excerpt,
-                    content,
-                    createdAt: new Date().toISOString()
-                });
-                form.reset();
-                showMessageModal('Publicación agregada con éxito.');
-            } catch (e) {
-                console.error("Error al agregar documento: ", e);
-                showMessageModal('Error al agregar la publicación.');
-            }
-        };
-
-        // Función para renderizar la lista de publicaciones en el panel de administración
-        window.renderAdminPosts = async () => {
-            const adminPostList = document.getElementById('admin-post-list');
-            adminPostList.innerHTML = '<li>Cargando...</li>';
-
-            try {
-                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/blog_posts`);
-                const querySnapshot = await getDocs(blogCollectionRef);
-                
-                adminPostList.innerHTML = ''; // Limpia la lista
-
-                if (querySnapshot.empty) {
-                    adminPostList.innerHTML = '<li>No hay publicaciones en la base de datos.</li>';
-                    return;
-                }
-
-                querySnapshot.forEach((doc) => {
-                    const post = doc.data();
-                    const postItem = document.createElement('li');
-                    postItem.className = 'flex justify-between items-center p-2 border-b border-gray-700 last:border-b-0';
-                    postItem.innerHTML = `
-                        <span class="text-gray-300 truncate">${post.title}</span>
-                        <div class="flex space-x-2">
-                            <button onclick="editBlogPost('${doc.id}')" class="text-blue-400 hover:text-blue-600 transition-colors">Editar</button>
-                            <button onclick="deleteBlogPost('${doc.id}')" class="text-red-500 hover:text-red-700 transition-colors">Eliminar</button>
-                        </div>
-                    `;
-                    adminPostList.appendChild(postItem);
-                });
-            } catch (e) {
-                console.error("Error al obtener las publicaciones del administrador:", e);
-                adminPostList.innerHTML = '<li>Error al cargar las publicaciones.</li>';
-            }
-        };
-
-        // Función para eliminar una publicación
-        window.deleteBlogPost = async (postId) => {
-            if (!isFirebaseReady()) return;
-            if (!checkAdminCredentials()) return;
-            const confirmed = await showConfirmModal("¿Estás seguro de que deseas eliminar esta publicación?");
-            if (confirmed) {
-                try {
-                    const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/blog_posts/${postId}`);
-                    await deleteDoc(postDocRef);
-                    showMessageModal('Publicación eliminada con éxito.');
-                } catch (e) {
-                    console.error("Error al eliminar documento: ", e);
-                    showMessageModal('Error al eliminar la publicación.');
-                }
-            }
-        };
-
-        // NUEVAS FUNCIONES PARA LA EDICIÓN DEL BLOG
-        // ------------------------------------------
-
-        // Abre el modal de edición y carga los datos de la publicación
-        window.editBlogPost = async (postId) => {
-            try {
-                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/blog_posts/${postId}`);
-                const postDoc = await getDoc(postDocRef);
-                
-                if (postDoc.exists()) {
-                    const data = postDoc.data();
-                    document.getElementById('edit-post-id').value = postDoc.id;
-                    document.getElementById('edit-title').value = data.title;
-                    document.getElementById('edit-date').value = data.date;
-                    document.getElementById('edit-excerpt').value = data.excerpt;
-                    document.getElementById('edit-content').value = data.content;
-                    
-                    document.getElementById('edit-modal').style.display = 'flex';
-                } else {
-                    showMessageModal("La publicación no existe.");
-                }
-            } catch (e) {
-                console.error("Error al cargar la publicación para editar: ", e);
-                showMessageModal("Error al cargar la publicación para editar.");
-            }
-        };
-
-        // Cierra el modal de edición
-        window.closeEditModal = () => {
-            document.getElementById('edit-modal').style.display = 'none';
-        };
-
-        // Maneja el envío del formulario de edición y actualiza la publicación
-        window.updateBlogPost = async (event) => {
-            event.preventDefault();
-            if (!isFirebaseReady()) return;
-            if (!checkAdminCredentials()) return;
-            const form = event.target;
-            const postId = form.querySelector('#edit-post-id').value;
-            const title = form.querySelector('#edit-title').value;
-            const date = form.querySelector('#edit-date').value;
-            const excerpt = form.querySelector('#edit-excerpt').value;
-            const content = form.querySelector('#edit-content').value;
-
-            if (!postId || !title || !date || !excerpt) {
-                showMessageModal('Por favor, completa todos los campos.');
-                return;
-            }
-
-            try {
-                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/blog_posts/${postId}`);
-                await setDoc(postDocRef, {
-                    title,
-                    date,
-                    excerpt,
-                    content,
-                    updatedAt: new Date().toISOString()
-                }, { merge: true }); // Usar { merge: true } para no sobrescribir otros campos
-                
-                showMessageModal('Publicación actualizada con éxito.');
-                closeEditModal(); // Cierra el modal después de guardar
-            } catch (e) {
-                console.error("Error al actualizar la publicación: ", e);
-                showMessageModal('Error al actualizar la publicación.');
-            }
-        };
-        
-        // NUEVAS FUNCIONES PARA MODALES PERSONALIZADOS (SIN ALERT)
-        // -----------------------------------------------------
-
-        function showMessageModal(message) {
-            const modal = document.getElementById('message-modal');
-            const messageText = document.getElementById('modal-message-text');
-            messageText.textContent = message;
-            if (modal) modal.style.display = 'flex';
-        }
-
-        function closeMessageModal() {
-            const modal = document.getElementById('message-modal');
-            if (modal) modal.style.display = 'none';
-        }
-
-        function showConfirmModal(message) {
-            const modal = document.getElementById('confirm-modal');
-            const messageText = document.getElementById('confirm-message-text');
-            messageText.textContent = message;
-            if (modal) modal.style.display = 'flex';
-
-            return new Promise((resolve) => {
-                document.getElementById('confirm-yes').onclick = () => {
-                    closeConfirmModal();
-                    resolve(true);
-                };
-                document.getElementById('confirm-no').onclick = () => {
-                    closeConfirmModal();
-                    resolve(false);
-                };
-            });
-        }
-        
-        function closeConfirmModal() {
-            const modal = document.getElementById('confirm-modal');
-            if (modal) modal.style.display = 'none';
-        }
-
-        function checkAdminCredentials() {
-            const code = document.getElementById('admin-secret-code').value;
-            if (code === 'SUPERCODE2025') {
-                return true;
-            } else {
-                showMessageModal('Código secreto incorrecto. No se pueden guardar los cambios.');
-                return false;
-            }
-        }
-
-        function isFirebaseReady() {
-            if (window.isAuthReady && window.currentUserId) {
-                return true;
-            } else {
-                showMessageModal('La página todavía se está inicializando. Por favor, espera un momento y vuelve a intentarlo.');
-                return false;
-            }
-        }
         
     </script>
     <style>
         /* Definición de la nueva paleta de colores y estilos */
         :root {
             --color-primary-accent: #6C40B8; /* Violeta principal más oscuro */
-            --color-secondary-accent: #FFD700; /* Dorado para resaltar */
+            --color-secondary-accent: #DDA0DD; /* Dorado para resaltar */
             --color-bg-light: #F0E6FF; /* Fondo principal violeta claro */
             --color-bg-card: #FFFFFF; /* Fondo de tarjetas blanco */
             --color-text-dark: #333333; /* Texto oscuro */
@@ -417,10 +103,6 @@
             background-color: rgba(255, 255, 255, 0.2); /* Hacer las tarjetas más transparentes */
             backdrop-filter: blur(15px); /* Aumentar el desenfoque para un mejor efecto */
         }
-        .bg-admin-card {
-            background-color: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-        }
 
         /* Estilos de las secciones (páginas) */
         .page-section {
@@ -445,15 +127,6 @@
             to { opacity: 1; }
         }
         
-        /* Estilos específicos para el panel de administración */
-        .admin-section {
-            display: none;
-        }
-        
-        .admin-section.active {
-            display: flex;
-        }
-
         .typing-cursor {
             display: inline-block;
             border-right: .15em solid #FFFFFF; /* Cursor blanco para el texto blanco */
@@ -466,7 +139,7 @@
 
         /* Estilos para la barra de navegación */
         .nav-link.active {
-            border-bottom: 3px solid #FFD700; /* Borde dorado para el enlace activo */
+            border-bottom: 3px solid var(--color-secondary-accent); /* Borde dorado para el enlace activo */
             padding-bottom: 5px;
             font-weight: 700;
         }
@@ -566,7 +239,6 @@
                     <a href="#projects" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_projects">Proyectos</a>
                     <a href="#skills" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_skills">Habilidades</a>
                     <a href="#plans" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_plans">Planes</a>
-                    <a href="#blog" class="nav-link px-4 py-2 hover:text-white transition-colors" data-lang-nav="nav_blog">Blog</a>
                 </nav>
                 <div class="flex-shrink-0 flex items-center gap-2 ml-4">
                     <button id="lang-es" class="font-bold text-sm text-white">ES</button>
@@ -583,8 +255,8 @@
             <section id="presentacion" class="page-section active bg-transparent">
                 <div class="flex flex-col items-center max-w-4xl mx-auto text-center px-6">
                     <!-- Círculo para la foto de perfil -->
-                    <div class="w-48 h-48 md:w-56 md:h-56 rounded-full overflow-hidden mb-6 shadow-xl border-4 border-accent-gold transition-transform transform hover:scale-105">
-                        <img id="profile-image" src="https://placehold.co/200x200/FFD700/6C40B8?text=Foto" alt="Foto de Perfil de Rodrigo" class="w-full h-full object-cover">
+                    <div class="w-48 h-48 md:w-56 md:h-56 rounded-full overflow-hidden mb-6 shadow-xl border-4 border-accent-gold transition-transform transform hover:scale-105" style="border-color: var(--color-secondary-accent)">
+                        <img id="profile-image" src="https://placehold.co/200x200/DDA0DD/6C40B8?text=Foto" alt="Foto de Perfil de Rodrigo" class="w-full h-full object-cover">
                     </div>
                     <h1 class="text-5xl md:text-6xl font-extrabold mb-4 text-white">
                         <span id="typing-text"></span><span class="typing-cursor"></span>
@@ -592,7 +264,7 @@
                     <p class="text-lg md:text-xl text-gray-200 mb-8" data-lang-key="hero_subtitle">
                         Soy un <strong class="font-bold">Desarrollador Web</strong> apasionado por crear experiencias digitales hermosas y funcionales.
                     </p>
-                    <a href="#projects" class="nav-link bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105" data-lang-key="hero_cta_projects">
+                    <a href="#projects" class="nav-link text-white font-bold py-3 px-8 rounded-full shadow-lg transition-colors transform hover:scale-105" data-lang-key="hero_cta_projects" style="background-color: var(--color-secondary-accent)">
                         Ver Proyectos
                     </a>
                     
@@ -813,144 +485,9 @@
                 </div>
             </section>
 
-            <!-- Sección de Blog -->
-            <section id="blog" class="page-section bg-transparent">
-                <div class="max-w-4xl mx-auto text-center px-6">
-                    <h2 class="text-4xl font-extrabold mb-12 text-white" data-lang-key="section_blog_title">Mi Blog</h2>
-                    <div id="blog-posts-container" class="space-y-6">
-                        <!-- Las publicaciones se cargarán dinámicamente aquí -->
-                        <p class="text-gray-400">Cargando publicaciones...</p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Panel de Administración (oculto por defecto) -->
-            <section id="admin-panel" class="page-section admin-section bg-transparent">
-                <div class="max-w-4xl mx-auto text-center px-6">
-                    <h2 class="text-4xl font-extrabold mb-12 text-white">Panel de Administración</h2>
-                    <div class="bg-card p-8 rounded-3xl shadow-lg text-white space-y-8">
-                        
-                        <!-- Sección de Perfil -->
-                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
-                            <h3 class="text-2xl font-bold mb-4">Actualizar Foto de Perfil</h3>
-                            <div class="flex flex-col items-center space-y-4">
-                                <label for="admin-photo-file" class="text-sm font-medium text-gray-300">Opción 1: Selecciona una nueva foto</label>
-                                <input type="file" id="admin-photo-file" name="photo-file" accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent-gold file:text-white hover:file:bg-yellow-500">
-
-                                <p class="text-gray-400">o</p>
-
-                                <label for="admin-photo-url" class="text-sm font-medium text-gray-300">Opción 2: Ingresa la URL de una imagen</label>
-                                <input type="url" id="admin-photo-url" name="photo-url" placeholder="https://ejemplo.com/imagen.jpg" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-
-                                <button onclick="saveProfilePicture()" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
-                                    Subir y Guardar Foto
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Sección de Blog -->
-                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
-                            <h3 class="text-2xl font-bold mb-4">Agregar Nueva Publicación</h3>
-                            <form onsubmit="addBlogPost(event)" class="space-y-4">
-                                <div>
-                                    <input type="text" id="title" name="title" placeholder="Título de la publicación" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                                </div>
-                                <div>
-                                    <input type="date" id="date" name="date" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                                </div>
-                                <div>
-                                    <textarea id="excerpt" name="excerpt" rows="2" placeholder="Resumen de la publicación" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
-                                </div>
-                                <div>
-                                    <textarea id="content" name="content" rows="6" placeholder="Contenido completo de la publicación" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
-                                </div>
-                                <button type="submit" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
-                                    Agregar Publicación
-                                </button>
-                            </form>
-                        </div>
-                        
-                        <!-- Sección de Gestión de Publicaciones -->
-                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
-                            <div class="flex justify-between items-center mb-4">
-                                <h3 class="text-2xl font-bold">Gestionar Publicaciones</h3>
-                                <button onclick="renderAdminPosts()" class="bg-gray-500 text-white py-1 px-3 rounded-full text-sm hover:bg-gray-600 transition-colors">
-                                    Recargar
-                                </button>
-                            </div>
-                            <ul id="admin-post-list" class="text-left space-y-2">
-                                <!-- Las publicaciones del administrador se cargarán aquí -->
-                                <li>Cargando publicaciones...</li>
-                            </ul>
-                        </div>
-
-                        <!-- Sección de Autenticación para Guardar -->
-                        <div class="bg-admin-card p-6 rounded-2xl shadow-inner mt-8 border-t-2 border-yellow-500">
-                            <h3 class="text-2xl font-bold mb-4">Autenticación Requerida para Guardar</h3>
-                            <p class="text-gray-400 mb-4 text-sm">Por seguridad, ingresa el código secreto antes de realizar cualquier cambio.</p>
-                            <div class="space-y-4">
-                                <div>
-                                    <label for="admin-secret-code" class="sr-only">Código Secreto</label>
-                                    <input type="password" id="admin-secret-code" name="admin-secret-code" placeholder="Código Secreto" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
         </div> <!-- Cierre del contenedor principal -->
 
     </div> <!-- Cierre del contenedor de todo el cuerpo -->
-
-    <!-- Modal para mensajes (reemplaza a alert) -->
-    <div id="message-modal" class="modal-container hidden">
-        <div class="modal-content">
-            <p id="modal-message-text" class="text-lg font-semibold mb-4"></p>
-            <button onclick="closeMessageModal()" class="bg-accent-gold text-white font-bold py-2 px-6 rounded-full hover:bg-yellow-500 transition-colors">Aceptar</button>
-        </div>
-    </div>
-
-    <!-- Modal de confirmación (reemplaza a confirm) -->
-    <div id="confirm-modal" class="modal-container hidden">
-        <div class="modal-content">
-            <p id="confirm-message-text" class="text-lg font-semibold mb-4"></p>
-            <div class="flex justify-center space-x-4">
-                <button id="confirm-yes" class="bg-red-600 text-white font-bold py-2 px-6 rounded-full hover:bg-red-700 transition-colors">Sí</button>
-                <button id="confirm-no" class="bg-gray-500 text-white font-bold py-2 px-6 rounded-full hover:bg-gray-600 transition-colors">No</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Modal para edición de publicaciones -->
-    <div id="edit-modal" class="modal-container hidden">
-        <div class="modal-content text-left">
-            <h3 class="text-2xl font-bold mb-4 text-center">Editar Publicación</h3>
-            <form id="edit-form" onsubmit="updateBlogPost(event)" class="space-y-4">
-                <input type="hidden" id="edit-post-id" name="post-id">
-                <div>
-                    <label for="edit-title" class="block text-sm font-medium text-gray-300 mb-1">Título</label>
-                    <input type="text" id="edit-title" name="title" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                </div>
-                <div>
-                    <label for="edit-date" class="block text-sm font-medium text-gray-300 mb-1">Fecha</label>
-                    <input type="date" id="edit-date" name="date" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                </div>
-                <div>
-                    <label for="edit-excerpt" class="block text-sm font-medium text-gray-300 mb-1">Resumen</label>
-                    <textarea id="edit-excerpt" name="excerpt" rows="2" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
-                </div>
-                <div>
-                    <label for="edit-content" class="block text-sm font-medium text-gray-300 mb-1">Contenido completo</label>
-                    <textarea id="edit-content" name="content" rows="6" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold"></textarea>
-                </div>
-                <div class="flex justify-end space-x-4 mt-4">
-                    <button type="button" onclick="closeEditModal()" class="bg-gray-500 text-white font-bold py-2 px-6 rounded-full hover:bg-gray-600 transition-colors">Cancelar</button>
-                    <button type="submit" class="bg-accent-gold text-white font-bold py-2 px-6 rounded-full hover:bg-yellow-500 transition-colors">Guardar Cambios</button>
-                </div>
-            </form>
-        </div>
-    </div>
 
     <!-- Pie de página final -->
     <footer id="main-footer" class="mt-auto text-center py-4 px-4 text-base text-gray-200">
@@ -1025,12 +562,6 @@
                 plan_details_15: 'Arquitectura escalable',
                 plan_details_16: 'APIs avanzadas',
                 plan_cta_details: 'Detalles',
-                section_blog_title: 'Mi Blog',
-                blog_post_title_1: 'El futuro de la inteligencia artificial en el desarrollo web',
-                blog_post_date_1: 'Publicado el 15 de agosto, 2024',
-                blog_post_excerpt_1: 'La inteligencia artificial está transformando la forma en que construimos sitios web. Desde generadores de código hasta herramientas de diseño automatizadas, la IA nos permite crear experiencias más personalizadas y eficientes. En este post, exploramos algunas de las tecnologías más emocionantes en el horizonte.',
-                blog_cta: 'Leer más',
-                blog_view_all: 'Ver todas las entradas',
             },
             en: {
                 // Navegación
@@ -1038,7 +569,6 @@
                 nav_projects: 'Projects',
                 nav_skills: 'Skills',
                 nav_plans: 'Plans',
-                nav_blog: 'Blog',
                 // Contenido de la página
                 hero_phrases: [
                     'Hello, I\'m Rodrigo',
@@ -1095,12 +625,6 @@
                 plan_details_15: 'Scalable architecture',
                 plan_details_16: 'APIs avanzadas',
                 plan_cta_details: 'Details',
-                section_blog_title: 'My Blog',
-                blog_post_title_1: 'The future of artificial intelligence in web development',
-                blog_post_date_1: 'Published on August 15, 2024',
-                blog_post_excerpt_1: 'Artificial intelligence is transforming the way we build websites. From code generators to automated design tools, AI allows us to create more personalized and efficient experiences. In this post, we explore some of the most exciting technologies on the horizon.',
-                blog_cta: 'Read more',
-                blog_view_all: 'View all posts',
             },
         };
 
@@ -1113,8 +637,7 @@
         const typingTextElement = document.getElementById('typing-text');
         const langEsButton = document.getElementById('lang-es');
         const langEnButton = document.getElementById('lang-en');
-        const sections = document.querySelectorAll('.page-section:not(.admin-section)');
-        const adminPanelSection = document.getElementById('admin-panel');
+        const sections = document.querySelectorAll('.page-section');
         const navLinks = document.querySelectorAll('.nav-link');
         const flipCards = document.querySelectorAll('.flip-card'); // Seleccionar todas las tarjetas
 
@@ -1184,27 +707,8 @@
         // Función para manejar el cambio de hash en la URL
         function handleHashChange() {
             const hash = window.location.hash;
-            if (hash === '#panelcontrol') {
-                // Ocultar todas las secciones públicas y mostrar el panel de administración
-                sections.forEach(section => {
-                    section.classList.remove('active');
-                });
-                adminPanelSection.style.display = 'flex'; // Mostrar directamente
-                adminPanelSection.classList.add('active');
-
-                // Renderiza las publicaciones en el panel de admin si es necesario
-                if (window.renderAdminPosts) {
-                    window.renderAdminPosts();
-                }
-                // Asegúrate de que los enlaces de navegación normal no estén activos
-                navLinks.forEach(link => link.classList.remove('active'));
-            } else {
-                // Ocultar el panel de administración y mostrar la sección normal
-                adminPanelSection.style.display = 'none';
-                adminPanelSection.classList.remove('active');
-                const targetId = hash || '#presentacion';
-                navigateToPage(targetId);
-            }
+            const targetId = hash || '#presentacion';
+            navigateToPage(targetId);
         }
 
         // Función para cambiar de página y actualizar el enlace activo

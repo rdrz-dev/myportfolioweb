@@ -54,46 +54,59 @@
             }
         }
         
-        // Función para guardar la foto de perfil en la base de datos
         window.saveProfilePicture = async () => {
             if (!checkAdminCredentials()) return;
 
+            const urlInput = document.getElementById('admin-photo-url');
             const fileInput = document.getElementById('admin-photo-file');
+            const imageUrl = urlInput.value.trim();
             const file = fileInput.files[0];
 
-            if (!file) {
-                showMessageModal('Por favor, selecciona un archivo de imagen.');
-                return;
-            }
-            if (!window.firebaseStorage) {
-                showMessageModal('Error: El servicio de almacenamiento no está disponible.');
+            if (!imageUrl && !file) {
+                showMessageModal('Por favor, selecciona un archivo o ingresa una URL.');
                 return;
             }
 
-            // Mostrar un mensaje de carga
-            showMessageModal('Subiendo imagen...');
+            let finalPhotoUrl = imageUrl;
 
-            // Usar una ruta estática para la foto de perfil
-            const storageRef = ref(window.firebaseStorage, `profile-pictures/${appId}/profile-picture.jpg`);
+            // Si se seleccionó un archivo, se le da prioridad a subirlo
+            if (file) {
+                if (!window.firebaseStorage) {
+                    showMessageModal('Error: El servicio de almacenamiento no está disponible.');
+                    return;
+                }
+                showMessageModal('Subiendo imagen...');
 
+                // Usar una ruta estática para la foto de perfil
+                const storageRef = ref(window.firebaseStorage, `profile-pictures/${appId}/profile-picture.jpg`);
+
+                try {
+                    const snapshot = await uploadBytes(storageRef, file);
+                    finalPhotoUrl = await getDownloadURL(snapshot.ref);
+                } catch (e) {
+                    console.error("Error al subir la foto de perfil:", e);
+                    showMessageModal('Error al subir la foto de perfil.');
+                    return;
+                }
+            }
+
+            // Si no hay una URL final (ni de archivo subido ni de input), mostrar error
+            if (!finalPhotoUrl) {
+                 showMessageModal('La URL proporcionada no es válida.');
+                 return;
+            }
+
+            // Guardar la URL en Firestore
             try {
-                // Subir el archivo
-                const snapshot = await uploadBytes(storageRef, file);
-
-                // Obtener la URL de descarga
-                const photoUrl = await getDownloadURL(snapshot.ref);
-
-                // Guardar la URL en Firestore en una ruta estática
+                showMessageModal('Guardando foto de perfil...');
                 const profileDocRef = doc(window.firestoreDb, `artifacts/${appId}/profile/data`);
-                await setDoc(profileDocRef, { photoUrl }, { merge: true });
+                await setDoc(profileDocRef, { photoUrl: finalPhotoUrl }, { merge: true });
 
-                // Actualizar la imagen en la página y mostrar mensaje de éxito
-                loadProfilePicture();
+                loadProfilePicture(); // Recargar la imagen en la página
                 showMessageModal('Foto de perfil actualizada con éxito.');
-
             } catch (e) {
-                console.error("Error al subir o guardar la foto de perfil:", e);
-                showMessageModal('Error al subir o guardar la foto de perfil.');
+                console.error("Error al guardar la foto de perfil:", e);
+                showMessageModal('Error al guardar la foto de perfil.');
             }
         };
 
@@ -163,7 +176,7 @@
             }
 
             try {
-                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts`);
+                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/blog_posts`);
                 await addDoc(blogCollectionRef, {
                     title,
                     date,
@@ -185,7 +198,7 @@
             adminPostList.innerHTML = '<li>Cargando...</li>';
 
             try {
-                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts`);
+                const blogCollectionRef = collection(window.firestoreDb, `artifacts/${appId}/blog_posts`);
                 const querySnapshot = await getDocs(blogCollectionRef);
                 
                 adminPostList.innerHTML = ''; // Limpia la lista
@@ -221,7 +234,7 @@
             const confirmed = await showConfirmModal("¿Estás seguro de que deseas eliminar esta publicación?");
             if (confirmed) {
                 try {
-                    const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
+                    const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/blog_posts/${postId}`);
                     await deleteDoc(postDocRef);
                     showMessageModal('Publicación eliminada con éxito.');
                 } catch (e) {
@@ -237,7 +250,7 @@
         // Abre el modal de edición y carga los datos de la publicación
         window.editBlogPost = async (postId) => {
             try {
-                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
+                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/blog_posts/${postId}`);
                 const postDoc = await getDoc(postDocRef);
                 
                 if (postDoc.exists()) {
@@ -281,7 +294,7 @@
             }
 
             try {
-                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/users/${window.currentUserId}/blog_posts/${postId}`);
+                const postDocRef = doc(window.firestoreDb, `artifacts/${appId}/blog_posts/${postId}`);
                 await setDoc(postDocRef, {
                     title,
                     date,
@@ -337,12 +350,11 @@
         }
 
         function checkAdminCredentials() {
-            const user = document.getElementById('admin-username').value;
-            const pass = document.getElementById('admin-password').value;
-            if (user === 'admin' && pass === 'portfolio123') {
+            const code = document.getElementById('admin-secret-code').value;
+            if (code === 'SUPERCODE2025') {
                 return true;
             } else {
-                showMessageModal('Usuario o contraseña de administrador incorrectos. No se pueden guardar los cambios.');
+                showMessageModal('Código secreto incorrecto. No se pueden guardar los cambios.');
                 return false;
             }
         }
@@ -822,8 +834,14 @@
                         <div class="bg-admin-card p-6 rounded-2xl shadow-inner">
                             <h3 class="text-2xl font-bold mb-4">Actualizar Foto de Perfil</h3>
                             <div class="flex flex-col items-center space-y-4">
-                                <label for="admin-photo-file" class="text-sm font-medium text-gray-300">Selecciona una nueva foto</label>
+                                <label for="admin-photo-file" class="text-sm font-medium text-gray-300">Opción 1: Selecciona una nueva foto</label>
                                 <input type="file" id="admin-photo-file" name="photo-file" accept="image/*" class="w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-accent-gold file:text-white hover:file:bg-yellow-500">
+
+                                <p class="text-gray-400">o</p>
+
+                                <label for="admin-photo-url" class="text-sm font-medium text-gray-300">Opción 2: Ingresa la URL de una imagen</label>
+                                <input type="url" id="admin-photo-url" name="photo-url" placeholder="https://ejemplo.com/imagen.jpg" class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+
                                 <button onclick="saveProfilePicture()" class="w-full bg-accent-gold text-white font-bold py-3 px-8 rounded-full shadow-lg hover:bg-yellow-500 transition-colors transform hover:scale-105">
                                     Subir y Guardar Foto
                                 </button>
@@ -869,15 +887,11 @@
                         <!-- Sección de Autenticación para Guardar -->
                         <div class="bg-admin-card p-6 rounded-2xl shadow-inner mt-8 border-t-2 border-yellow-500">
                             <h3 class="text-2xl font-bold mb-4">Autenticación Requerida para Guardar</h3>
-                            <p class="text-gray-400 mb-4 text-sm">Por seguridad, ingresa tus credenciales antes de realizar cualquier cambio.</p>
+                            <p class="text-gray-400 mb-4 text-sm">Por seguridad, ingresa el código secreto antes de realizar cualquier cambio.</p>
                             <div class="space-y-4">
                                 <div>
-                                    <label for="admin-username" class="sr-only">Usuario</label>
-                                    <input type="text" id="admin-username" name="admin-username" placeholder="Usuario (admin)" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
-                                </div>
-                                <div>
-                                    <label for="admin-password" class="sr-only">Contraseña</label>
-                                    <input type="password" id="admin-password" name="admin-password" placeholder="Contraseña" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
+                                    <label for="admin-secret-code" class="sr-only">Código Secreto</label>
+                                    <input type="password" id="admin-secret-code" name="admin-secret-code" placeholder="Código Secreto" required class="w-full p-3 rounded-lg bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent-gold">
                                 </div>
                             </div>
                         </div>
